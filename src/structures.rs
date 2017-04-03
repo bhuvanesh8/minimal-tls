@@ -33,7 +33,7 @@ pub enum TLSError {
     InvalidClientHelloExtensions
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 pub enum CipherSuite {
     TLS_AES_128_GCM_SHA256 = 0x1301,
     TLS_AES_256_GCM_SHA384 = 0x1302,

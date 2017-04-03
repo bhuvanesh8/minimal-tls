@@ -69,7 +69,9 @@ impl TLSToBytes for TLSPlaintext {
 // FIXME: Implement this
 impl TLSToBytes for CipherSuite {
     fn as_bytes(&self) -> Vec<u8> {
-        vec![]
+        let mut ret : Vec<u8> = vec![];
+        ret.write_u16::<NetworkEndian>(*self as u16).unwrap();
+        ret
     }
 }
 
