@@ -1,7 +1,7 @@
 extern crate byteorder;
 use serialization::byteorder::{NetworkEndian, WriteBytesExt};
 
-use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest};
+use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, ASN1Cert};
 
 pub trait TLSToBytes {
 	fn as_bytes(&self) -> Vec<u8>;
@@ -66,7 +66,6 @@ impl TLSToBytes for TLSPlaintext {
 	}
 }
 
-// FIXME: Implement this
 impl TLSToBytes for CipherSuite {
     fn as_bytes(&self) -> Vec<u8> {
         let mut ret : Vec<u8> = vec![];
@@ -77,19 +76,28 @@ impl TLSToBytes for CipherSuite {
 
 impl TLSToBytes for CertificateEntry {
     fn as_bytes(&self) -> Vec<u8> {
-        vec![]
+        let mut ret : Vec<u8> = vec![];
+
+        // IMPORTANT: This length here is a u24 in the standard, NOT a u32
+        ret.write_u32::<NetworkEndian>(self.cert_data.len() as u32).unwrap();
+        ret.drain(..1);
+        ret.extend(&self.cert_data);
+        ret.extend(u16_vector_as_bytes(&self.extensions));
+        ret
     }
 }
 
 impl TLSToBytes for KeyUpdateRequest {
     fn as_bytes(&self) -> Vec<u8> {
-        vec![]
+        vec![*self as u8]
     }
 }
 
 impl TLSToBytes for SignatureScheme {
     fn as_bytes(&self) -> Vec<u8> {
-        vec![]
+        let mut ret : Vec<u8> = vec![];
+        ret.write_u16::<NetworkEndian>(*self as u16).unwrap();
+        ret
     }
 }
 

@@ -277,6 +277,7 @@ pub struct Cookie {
 
 // Should be 2 bytes, u16
 #[allow(non_camel_case_types)]
+#[derive(PartialEq, Copy, Clone)]
 pub enum SignatureScheme {
     /* RSASSA-PKCS1-v1_5 algorithms */
     rsa_pkcs1_sha1 = 0x0201,
@@ -350,7 +351,7 @@ pub struct OIDFilterExtension {
     pub filters : Vec<u8>, //<0..2^16-1>;
 }
 
-type ASN1Cert = Vec<u8>; //<1..2^24-1>;
+pub type ASN1Cert = Vec<u8>; //<1..2^24-1>;
 
 pub struct CertificateEntry {
     pub cert_data : ASN1Cert,
@@ -380,6 +381,7 @@ pub struct NewSessionTicket {
 
 pub struct EndOfEarlyData {}
 
+#[derive(PartialEq, Copy, Clone)]
 pub enum KeyUpdateRequest {
     update_not_requested = 0,
     update_requested = 1,
