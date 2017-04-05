@@ -130,7 +130,7 @@ impl TLSToBytes for HandshakeMessage {
                 ret.extend(u16_vector_as_bytes(&inner.extensions));
             },
             // This is correct, it is supposed to be empty
-			HandshakeMessage::EndOfEarlyData(ref inner) => (),
+			HandshakeMessage::EndOfEarlyData(_) => (),
 			HandshakeMessage::HelloRetryRequest(ref inner) => {
                 ret.write_u16::<NetworkEndian>(inner.server_version).unwrap();
                 ret.extend(inner.cipher_suite.as_bytes());

@@ -1,6 +1,7 @@
 use std::slice::Iter;
 use structures::{Extension, TLSError, ProtocolVersion};
-use structures::{Cookie, NamedGroup, NamedGroupList, SignatureScheme, SignatureSchemeList, SupportedVersions};
+use structures::{Cookie, NamedGroup, NamedGroupList, SignatureScheme, SignatureSchemeList,
+					SupportedVersions, PskKeyExchangeMode, PskKeyExchangeModes};
 
 impl Extension {
 
@@ -15,7 +16,7 @@ impl Extension {
         }
 
 		let mut ret : Vec<NamedGroup> = Vec::new();
-		for x in 1..(length/2) {
+		for _ in 1..(length/2) {
 
 			let first = iter.next();
 			let second = iter.next();
@@ -87,14 +88,17 @@ impl Extension {
         Ok(Extension::SignatureAlgorithms(SignatureSchemeList{supported_signature_algorithms : ret}))
 	}
 
+	// FIXME: Implement this
 	pub fn parse_keyshare<'a>(iter: &mut Iter<'a, u8>) -> Result<Extension, TLSError> {
 		Err(TLSError::InvalidHandshakeError)
 	}
 
+	// FIXME: Implement this
 	pub fn parse_preshared_key<'a>(iter: &mut Iter<'a, u8>) -> Result<Extension, TLSError> {
 		Err(TLSError::InvalidHandshakeError)
 	}
 
+	// FIXME: Implement this
 	pub fn parse_earlydata<'a>(iter: &mut Iter<'a, u8>) -> Result<Extension, TLSError> {
 		Err(TLSError::InvalidHandshakeError)
 	}
@@ -136,13 +140,34 @@ impl Extension {
 	}
 
 	pub fn parse_psk_key_exchange_modes<'a>(iter: &mut Iter<'a, u8>) -> Result<Extension, TLSError> {
-		Err(TLSError::InvalidHandshakeError)
+		let first = iter.next().unwrap();
+
+		let length = *first as u8;
+        if length < 1 {
+            return Err(TLSError::InvalidHandshakeError)
+        }
+        let mut ret : Vec<PskKeyExchangeMode> = vec![];
+        for _ in 1..length {
+        	let first = iter.next();
+        	if first.is_none() {
+				return Err(TLSError::InvalidHandshakeError)
+			}
+
+        	ret.push(match *first.unwrap() {
+        		0 => PskKeyExchangeMode::PskKe,
+        		1 => PskKeyExchangeMode::PskDheKe,
+        		_ => return Err(TLSError::InvalidHandshakeError)
+        	});
+        }
+        Ok(Extension::PskKeyExchangeModes(PskKeyExchangeModes{ke_modes: ret}))
 	}
 
+	// FIXME: Implement this
 	pub fn parse_certificate_authorities<'a>(iter: &mut Iter<'a, u8>) -> Result<Extension, TLSError> {
 		Err(TLSError::InvalidHandshakeError)
 	}
 
+	// FIXME: Implement this
 	pub fn parse_oldfilters<'a>(iter: &mut Iter<'a, u8>) -> Result<Extension, TLSError> {
 		Err(TLSError::InvalidHandshakeError)
 	}
