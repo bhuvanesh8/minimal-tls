@@ -212,21 +212,10 @@ pub struct KeyShareEntry {
     pub key_exchange : Vec<u8> // <1..2^16-1>
 }
 
-pub struct KeyShare {
-/*
-   pub struct {
-       select (Handshake.msg_type) {
-           case client_hello:
-               KeyShareEntry client_shares<0..2^16-1>;
-
-           case hello_retry_request:
-               NamedGroup selected_group;
-
-           case server_hello:
-               KeyShareEntry server_share;
-       };
-   } KeyShare;
-*/
+pub enum KeyShare {
+    ClientHello(Vec<KeyShareEntry>),
+    HelloRetryRequest(NamedGroup),
+    ServerHello(KeyShareEntry)
 }
 
 pub enum PskKeyExchangeMode {
@@ -255,17 +244,12 @@ pub struct PskIdentity {
     pub obfuscated_ticket_age : u32
 }
 
-type PskBinderEntry = Vec<u8>; // <32..255>
-
-pub enum PreSharedKeyExtensionOptions {
-    ClientHello(Vec<PskIdentity>, Vec<PskBinderEntry>), // identities<7..2^16-1> and binders<33..2^16-1>
-    ServerHello(u16)
-}
+pub type PskBinderEntry = Vec<u8>; // <32..255>
 
 pub struct PreSharedKeyExtension {
-    pub msg : PreSharedKeyExtensionOptions,
+    pub identities : Vec<PskIdentity>,
+    pub binders : Vec<PskBinderEntry>,
 }
-
 
 pub struct SupportedVersions {
     pub versions : Vec<ProtocolVersion>, // <2..254>

@@ -168,22 +168,29 @@ impl<'a> TLS_config<'a> {
 
         while let Some(first) = iter.next() {
             let second = iter.next().unwrap();
-            ret.push(match ((*first as u16) << 8) | (*second as u16) {
-    			10 => try!(Extension::parse_supported_groups(&mut iter)),
-    			13 => try!(Extension::parse_signature_algorithms(&mut iter)),
-    			40 => try!(Extension::parse_keyshare(&mut iter)),
-    			41 => try!(Extension::parse_preshared_key(&mut iter)),
-    			42 => try!(Extension::parse_earlydata(&mut iter)),
-    			43 => try!(Extension::parse_supported_versions(&mut iter)),
-    			44 => try!(Extension::parse_cookie(&mut iter)),
-    			45 => try!(Extension::parse_psk_key_exchange_modes(&mut iter)),
-    			47 => try!(Extension::parse_certificate_authorities(&mut iter)),
-    			48 => try!(Extension::parse_oldfilters(&mut iter)),
+            let result : Option<Extension> = match ((*first as u16) << 8) | (*second as u16) {
+    			10 => Some(try!(Extension::parse_supported_groups(&mut iter, self))),
+    			13 => Some(try!(Extension::parse_signature_algorithms(&mut iter, self))),
+    			40 => Some(try!(Extension::parse_keyshare(&mut iter, self))),
+    			41 => Some(try!(Extension::parse_preshared_key(&mut iter, self))),
+    			42 => Some(try!(Extension::parse_earlydata(&mut iter, self))),
+    			43 => Some(try!(Extension::parse_supported_versions(&mut iter, self))),
+    			44 => Some(try!(Extension::parse_cookie(&mut iter, self))),
+    			45 => Some(try!(Extension::parse_psk_key_exchange_modes(&mut iter, self))),
+
+                /* We don't implement the "certificate_authories" extension */
+    			47 => None,
+    			48 => Some(try!(Extension::parse_oldfilters(&mut iter, self))),
                 _ => return Err(TLSError::InvalidHandshakeError)
-            });
+            };
+
+            match result {
+                Some(x) => ret.push(x),
+                _ => ()
+            };
         }
 
-		Err(TLSError::InvalidState)
+		Ok(ret)
 	}
 
 	fn read_clienthello(&mut self) -> Result<ClientHello, TLSError> {
