@@ -3,7 +3,7 @@ use structures::{Extension, TLSError, ProtocolVersion, TLSState};
 use structures::{Cookie, NamedGroup, NamedGroupList, SignatureScheme, SignatureSchemeList,
 					SupportedVersions, PskKeyExchangeMode, PskKeyExchangeModes,
 					PreSharedKeyExtension, KeyShare, KeyShareEntry, PskIdentity,
-					PskBinderEntry};
+					PskBinderEntry, EarlyDataIndication, EarlyDataIndicationOptions, Empty};
 use TLS_config;
 
 impl Extension {
@@ -232,7 +232,13 @@ impl Extension {
 
 	// FIXME: Implement this
 	pub fn parse_earlydata<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
-		Err(TLSError::InvalidHandshakeError)
+		/*
+			Technically, the format of this extension depends on whether we are parsing
+			a ClientHello, EncryptedExtensions, or NewSessionTicket. However, as the server
+			we will only ever parse the ClientHello
+		*/
+
+		Ok(Extension::EarlyData(EarlyDataIndication{value: EarlyDataIndicationOptions::ClientHello(Empty{})}))
 	}
 
 	pub fn parse_supported_versions<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
