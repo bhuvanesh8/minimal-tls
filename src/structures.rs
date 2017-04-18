@@ -30,7 +30,9 @@ pub enum TLSError {
     InvalidHandshakeError,
     InvalidClientHello,
     UnsupportedCipherSuite,
-    InvalidClientHelloExtensions
+    InvalidClientHelloExtensions,
+    DuplicateExtensions,
+    InvalidTLSSupportedVersion
 }
 
 #[derive(PartialEq, Copy, Clone)]

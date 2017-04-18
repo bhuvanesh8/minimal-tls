@@ -1,11 +1,14 @@
 mod structures;
 mod serialization;
 mod extensions;
+mod crypto;
 
 use std::io::Read;
 use std::io::Write;
+use std::collections::HashMap;
 use serialization::TLSToBytes;
 use structures::{Random, ClientHello, CipherSuite, Extension, ContentType, HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError};
+use crypto::gen_server_random;
 
 // Misc. functions
 pub fn bytes_to_u16(bytes : &[u8]) -> u16 {
@@ -278,14 +281,48 @@ impl<'a> TLS_config<'a> {
 
 	// FIXME: Implement extension validation logic here
 	// Must have "supported_versions"
+    // Must have "signature_algorithms"
 	// Must have either "key_share" or "pre_shared_key"
+    // Must not be more than 1 extension of the same type
+    // Must not be any recognized extensions that are not valid for a ClientHello
 	fn validate_extensions(&mut self, clienthello : &ClientHello) -> Result<Vec<Extension>, TLSError> {
-		Err(TLSError::InvalidClientHelloExtensions)
-	}
 
-	// FIXME: Have to look up how to get high quality rng on every platform
-	fn gen_server_random(&mut self) -> Result<[u8; 32], TLSError> {
-		Ok([0; 32])
+        // TODO: Check to make sure there are no duplicate extensions
+
+        let processed = vec![];
+
+        // Check to make sure there is a "supported_versions" extension with TLSv1.3
+        for ext in clienthello.extensions {
+            match ext {
+                Extension::SupportedVersions(sv) => {
+                    if processed.contains(&ExtensionType::SupportedVersions) {
+                        return Err(TLSError::DuplicateExtensions);
+                    }
+
+                    // Make sure the client supports TLS 1.3
+                    if !sv.versions.contains(&0x0304) {
+                        return Err(TLSError::InvalidTLSSupportedVersion);
+                    }
+
+                    processed.push(ExtensionType::SupportedVersions);
+                },
+                    10 => Some(try!(Extension::parse_supported_groups(&mut iter, self))),
+                    13 => Some(try!(Extension::parse_signature_algorithms(&mut iter, self))),
+                    40 => Some(try!(Extension::parse_keyshare(&mut iter, self))),
+                    41 => Some(try!(Extension::parse_preshared_key(&mut iter, self))),
+                    45 => Some(try!(Extension::parse_psk_key_exchange_modes(&mut iter, self))),
+
+                    /* We don't implement the "certificate_authories" extension */
+                    47 => None,
+                    48 => Some(try!(Extension::parse_oldfilters(&mut iter, self))),
+                    _ => return Err(TLSError::InvalidHandshakeError)
+            };
+        }
+
+        // We require certain extensions, so make sure we have them:
+        // supported_versions
+
+		Err(TLSError::InvalidClientHelloExtensions)
 	}
 
 	fn negotiate_serverhello(&mut self, clienthello: &ClientHello) -> Result<HandshakeMessage, TLSError> {
@@ -309,7 +346,7 @@ impl<'a> TLS_config<'a> {
         let extensions : Vec<Extension> = try!(self.validate_extensions(&clienthello));
 
         Ok(HandshakeMessage::ServerHello(ServerHello{
-            version : 0x0304, random: try!(self.gen_server_random()),
+            version : 0x0304, random: try!(crypto::gen_server_random()),
             cipher_suite: ciphersuite, extensions : extensions}))
 	}
 

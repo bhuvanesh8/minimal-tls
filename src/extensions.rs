@@ -230,7 +230,6 @@ impl Extension {
 		Ok(Extension::PreSharedKey(PreSharedKeyExtension{identities: pski_list, binders : pskb_list}))
 	}
 
-	// FIXME: Implement this
 	pub fn parse_earlydata<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
 		/*
 			Technically, the format of this extension depends on whether we are parsing
@@ -300,7 +299,7 @@ impl Extension {
         Ok(Extension::PskKeyExchangeModes(PskKeyExchangeModes{ke_modes: ret}))
 	}
 
-	// FIXME: Implement this
+	// Client will never send this extension, so we don't parse it
 	pub fn parse_oldfilters<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
 		Err(TLSError::InvalidHandshakeError)
 	}
