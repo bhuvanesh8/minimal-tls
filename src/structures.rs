@@ -195,7 +195,7 @@ pub enum Extension {
     OIDFilters(OIDFilterExtension),
 }
 
-// TODO: We must ensure that this value is be 2 bytes long!
+#[derive(PartialEq)]
 pub enum ExtensionType {
     SupportedGroups = 10,
     SignatureAlgorithms = 13,

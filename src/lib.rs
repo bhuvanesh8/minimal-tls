@@ -7,7 +7,9 @@ use std::io::Read;
 use std::io::Write;
 use std::collections::HashMap;
 use serialization::TLSToBytes;
-use structures::{Random, ClientHello, CipherSuite, Extension, ContentType, HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError};
+use structures::{Random, ClientHello, CipherSuite, Extension, ContentType,
+                    HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError,
+                    ExtensionType};
 use crypto::gen_server_random;
 
 // Misc. functions
@@ -288,13 +290,12 @@ impl<'a> TLS_config<'a> {
 	fn validate_extensions(&mut self, clienthello : &ClientHello) -> Result<Vec<Extension>, TLSError> {
 
         // TODO: Check to make sure there are no duplicate extensions
-
-        let processed = vec![];
+        let mut processed = vec![];
 
         // Check to make sure there is a "supported_versions" extension with TLSv1.3
-        for ext in clienthello.extensions {
+        for ext in &clienthello.extensions {
             match ext {
-                Extension::SupportedVersions(sv) => {
+                &Extension::SupportedVersions(ref sv) => {
                     if processed.contains(&ExtensionType::SupportedVersions) {
                         return Err(TLSError::DuplicateExtensions);
                     }
@@ -306,21 +307,17 @@ impl<'a> TLS_config<'a> {
 
                     processed.push(ExtensionType::SupportedVersions);
                 },
-                    10 => Some(try!(Extension::parse_supported_groups(&mut iter, self))),
-                    13 => Some(try!(Extension::parse_signature_algorithms(&mut iter, self))),
-                    40 => Some(try!(Extension::parse_keyshare(&mut iter, self))),
-                    41 => Some(try!(Extension::parse_preshared_key(&mut iter, self))),
-                    45 => Some(try!(Extension::parse_psk_key_exchange_modes(&mut iter, self))),
+                &Extension::SignatureAlgorithms(ref ssl) => {
 
-                    /* We don't implement the "certificate_authories" extension */
-                    47 => None,
-                    48 => Some(try!(Extension::parse_oldfilters(&mut iter, self))),
-                    _ => return Err(TLSError::InvalidHandshakeError)
+                }
+                // FIXME: Add support for PSK/session resumption
+                _ => {}
             };
         }
 
         // We require certain extensions, so make sure we have them:
         // supported_versions
+        // signature_algorithms
 
 		Err(TLSError::InvalidClientHelloExtensions)
 	}
