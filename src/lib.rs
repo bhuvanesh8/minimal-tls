@@ -9,16 +9,19 @@ use std::collections::HashMap;
 use serialization::TLSToBytes;
 use structures::{Random, ClientHello, CipherSuite, Extension, ContentType,
                     HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError,
-                    ExtensionType};
-use crypto::gen_server_random;
+                    ExtensionType, NamedGroup, KeyShare};
 
 // Misc. functions
 pub fn bytes_to_u16(bytes : &[u8]) -> u16 {
 	((bytes[0] as u16) << 8) | (bytes[1] as u16)
 }
 
-// Each connection needs to have its own TLS_config object
-pub struct TLS_config<'a> {
+pub struct TLS_config {
+
+}
+
+// Each connection needs to have its own TLS_session object
+pub struct TLS_session<'a> {
 	reader : &'a mut Read,
 	writer : &'a mut Write,
 
@@ -27,20 +30,23 @@ pub struct TLS_config<'a> {
 	// Boolean if we have sent a HelloRetryRequest
 	sent_hello_retry : bool,
 
+    // ECDHE x25519 shared key
+    shared_key : Vec<u8>,
+
 	// Cache any remaining bytes in a TLS record
     ctypecache : ContentType,
 	recordcache: Vec<u8>
 }
 
-pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) -> TLS_config<'a> {
-	TLS_config{reader : read, writer : write, state : TLSState::Start,
-				sent_hello_retry : false,
-				ctypecache : ContentType::InvalidReserved, recordcache : Vec::new() }
+pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) -> TLS_session<'a> {
+	TLS_session{reader : read, writer : write, state : TLSState::Start,
+				sent_hello_retry : false, shared_key : vec![],
+				ctypecache : ContentType::InvalidReserved, recordcache : vec![] }
 }
 
 #[allow(unused_variables)]
 #[allow(dead_code)]
-impl<'a> TLS_config<'a> {
+impl<'a> TLS_session<'a> {
     /*
         Read implements reading directly from the TLSPlaintext streams.
         It will handle retrieving a new TLSPlaintext in the case of fragmentation
@@ -308,8 +314,47 @@ impl<'a> TLS_config<'a> {
                     processed.push(ExtensionType::SupportedVersions);
                 },
                 &Extension::SignatureAlgorithms(ref ssl) => {
+                   /*
+                        Technically, we are supposed to parse out the list of supported
+                        certificates by the client and verify that our server certificate
+                        supports signing by that algorithm. However, according to the TLS
+                        RFC 4.4.2.2, we SHOULD continue the handshake even if our certificate
+                        supports signing with a different algorithm.
 
-                }
+                        tl;dr: we don't care what this extension says
+                    */ 
+                    if processed.contains(&ExtensionType::SignatureAlgorithms) {
+                        return Err(TLSError::DuplicateExtensions);
+                    }
+                    processed.push(ExtensionType::SignatureAlgorithms);
+                },
+                &Extension::KeyShare(ref kso) => {
+                    // FIXME: Client MAY send an empty client_shares list to request
+                    // the server choose the group and send it in the next round-trip 
+
+                    if processed.contains(&ExtensionType::KeyShare) {
+                        return Err(TLSError::DuplicateExtensions);
+                    }
+
+                    if let &KeyShare::ClientHello(ref ks) = kso {
+                        // We only support x25519, so make sure this is in the list
+                        match (*ks).iter().find(|&x| x.group == NamedGroup::x25519) {
+                            Some(x) => {
+                                // We can now perform our key exchange
+                                self.shared_key = try!(crypto::x25519_key_exchange(&x.key_exchange));
+                            },
+                            None => {
+                                // FIXME: We should return a HelloRetryRequest here with x25519
+                                return Err(TLSError::InvalidKeyShare);
+                            }
+                        }
+
+                        processed.push(ExtensionType::KeyShare);
+                    } else {
+                        return Err(TLSError::InvalidKeyShare);
+                    }
+                },
+                // KeyShareEntry client_shares<0..2^16-1>
                 // FIXME: Add support for PSK/session resumption
                 _ => {}
             };

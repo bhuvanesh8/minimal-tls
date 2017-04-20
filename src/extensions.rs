@@ -4,11 +4,11 @@ use structures::{Cookie, NamedGroup, NamedGroupList, SignatureScheme, SignatureS
 					SupportedVersions, PskKeyExchangeMode, PskKeyExchangeModes,
 					PreSharedKeyExtension, KeyShare, KeyShareEntry, PskIdentity,
 					PskBinderEntry, EarlyDataIndication, EarlyDataIndicationOptions, Empty};
-use TLS_config;
+use TLS_session;
 
 impl Extension {
 
-	pub fn parse_supported_groups<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
+	pub fn parse_supported_groups<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
 		let first = iter.next().unwrap();
 		let second = iter.next().unwrap();
 
@@ -45,7 +45,7 @@ impl Extension {
         Ok(Extension::SupportedGroups(NamedGroupList{named_group_list : ret}))
 	}
 
-	pub fn parse_signature_algorithms<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
+	pub fn parse_signature_algorithms<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
 		let first = iter.next().unwrap();
 		let second = iter.next().unwrap();
 
@@ -127,7 +127,7 @@ impl Extension {
         Ok(KeyShareEntry{group: namedgroup, key_exchange: ke_data})
 	}
 
-	pub fn parse_keyshare<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
+	pub fn parse_keyshare<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
 		/*
 			Technically, the format of this extension depends on whether we are parsing
 			a ClientHello, a HelloRetryRequest, or a ServerHello. However, we only implement
@@ -214,7 +214,7 @@ impl Extension {
         Ok(ret)
 	}
 
-	pub fn parse_preshared_key<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
+	pub fn parse_preshared_key<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
 		/*
 			Technically, the format of this extension depends on whether we are parsing
 			a ClientHello or a ServerHello. However, we only implement
@@ -230,7 +230,7 @@ impl Extension {
 		Ok(Extension::PreSharedKey(PreSharedKeyExtension{identities: pski_list, binders : pskb_list}))
 	}
 
-	pub fn parse_earlydata<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
+	pub fn parse_earlydata<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
 		/*
 			Technically, the format of this extension depends on whether we are parsing
 			a ClientHello, EncryptedExtensions, or NewSessionTicket. However, as the server
@@ -240,7 +240,7 @@ impl Extension {
 		Ok(Extension::EarlyData(EarlyDataIndication{value: EarlyDataIndicationOptions::ClientHello(Empty{})}))
 	}
 
-	pub fn parse_supported_versions<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
+	pub fn parse_supported_versions<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
 		// TODO: Is it possible for these to ever panic?
 		let first = iter.next().unwrap();
 		let second = iter.next().unwrap();
@@ -264,7 +264,7 @@ impl Extension {
         Ok(Extension::SupportedVersions(SupportedVersions{versions: ret}))
 	}
 
-	pub fn parse_cookie<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
+	pub fn parse_cookie<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
 		let first = iter.next().unwrap();
 		let second = iter.next().unwrap();
 
@@ -276,7 +276,7 @@ impl Extension {
         Ok(Extension::Cookie(Cookie{cookie : ret}))
 	}
 
-	pub fn parse_psk_key_exchange_modes<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
+	pub fn parse_psk_key_exchange_modes<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
 		let first = iter.next().unwrap();
 
 		let length = *first as u8;
@@ -300,7 +300,7 @@ impl Extension {
 	}
 
 	// Client will never send this extension, so we don't parse it
-	pub fn parse_oldfilters<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_config) -> Result<Extension, TLSError> {
+	pub fn parse_oldfilters<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
 		Err(TLSError::InvalidHandshakeError)
 	}
 }

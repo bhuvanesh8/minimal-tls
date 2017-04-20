@@ -9,3 +9,4 @@ bindgen = "0.22.1"
 
 [dependencies]
 byteorder = "1"
+libc = "0.2.21"

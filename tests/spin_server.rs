@@ -16,7 +16,7 @@ fn handle_client(stream: TcpStream){
 
     let mut reader = BufReader::new(&stream);
     let mut writer = BufWriter::new(&stream);
-    let mut connection:TLS_config = tls_init(&mut reader, &mut writer);
+    let mut connection:TLS_session = tls_init(&mut reader, &mut writer);
     
     
     match connection.tls_start(){
