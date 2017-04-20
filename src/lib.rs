@@ -1,3 +1,26 @@
+#![cfg_attr(feature="clippy", feature(plugin))]
+#![cfg_attr(feature="clippy", plugin(clippy))]
+
+// these lints throw lots of warnings
+// in the external bindings, so allow for now
+// to make the log more readable 
+#![allow(non_camel_case_types)]
+#![allow(non_upper_case_globals)] 
+#![allow(dead_code)] 
+
+// some non-clippy lints borrowed from
+// https://pascalhertleif.de/artikel/good-practices-for-writing-rust-libraries/
+#![warn(missing_docs,
+        missing_debug_implementations,
+        missing_copy_implementations,
+        trivial_casts,
+        trivial_numeric_casts,
+        unsafe_code,
+        unstable_features,
+        unused_import_braces,
+        unused_qualifications)]
+
+
 mod structures;
 mod serialization;
 mod extensions;
