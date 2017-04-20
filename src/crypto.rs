@@ -2,6 +2,8 @@ use std::os::raw::c_void;
 use structures::{TLSError};
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+// FIXME: We MUST call sodium_init once before we start calling functions from the lib
+
 // FIXME: Have to look up how to get high quality rng on every platform
 pub fn gen_server_random() -> Result<[u8; 32], TLSError> {
 	let mut ret = [0; 32];
