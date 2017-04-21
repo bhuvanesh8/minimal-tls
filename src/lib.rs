@@ -3,10 +3,10 @@
 
 // these lints throw lots of warnings
 // in the external bindings, so allow for now
-// to make the log more readable 
+// to make the log more readable
 #![allow(non_camel_case_types)]
-#![allow(non_upper_case_globals)] 
-#![allow(dead_code)] 
+#![allow(non_upper_case_globals)]
+#![allow(dead_code)]
 
 // some non-clippy lints borrowed from
 // https://pascalhertleif.de/artikel/good-practices-for-writing-rust-libraries/
@@ -15,7 +15,6 @@
         missing_copy_implementations,
         trivial_casts,
         trivial_numeric_casts,
-        unsafe_code,
         unstable_features,
         unused_import_braces,
         unused_qualifications)]
@@ -345,7 +344,7 @@ impl<'a> TLS_session<'a> {
                         supports signing with a different algorithm.
 
                         tl;dr: we don't care what this extension says
-                    */ 
+                    */
                     if processed.contains(&ExtensionType::SignatureAlgorithms) {
                         return Err(TLSError::DuplicateExtensions);
                     }
@@ -353,7 +352,7 @@ impl<'a> TLS_session<'a> {
                 },
                 &Extension::KeyShare(ref kso) => {
                     // FIXME: Client MAY send an empty client_shares list to request
-                    // the server choose the group and send it in the next round-trip 
+                    // the server choose the group and send it in the next round-trip
 
                     if processed.contains(&ExtensionType::KeyShare) {
                         return Err(TLSError::DuplicateExtensions);

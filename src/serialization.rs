@@ -1,5 +1,5 @@
 extern crate byteorder;
-use serialization::byteorder::{NetworkEndian, WriteBytesExt};
+use self::byteorder::{NetworkEndian, WriteBytesExt};
 
 use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, ASN1Cert};
 
@@ -23,7 +23,7 @@ fn u16_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
 	ret
 }
 
-fn u16_bytevec_as_bytes(data : &Vec<u8>) -> Vec<u8> {
+pub fn u16_bytevec_as_bytes(data : &Vec<u8>) -> Vec<u8> {
 	let mut ret : Vec<u8> = vec![];
 	ret.write_u16::<NetworkEndian>(data.len() as u16).unwrap();
     ret.extend(data);
@@ -39,7 +39,7 @@ fn u8_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
 	ret
 }
 
-fn u8_bytevec_as_bytes(data : &Vec<u8>) -> Vec<u8> {
+pub fn u8_bytevec_as_bytes(data : &Vec<u8>) -> Vec<u8> {
 	let mut ret : Vec<u8> = vec![];
     ret.push(data.len() as u8);
     ret.extend(data);

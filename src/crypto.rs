@@ -1,5 +1,10 @@
 use std::os::raw::c_void;
-use structures::{TLSError};
+use structures::TLSError;
+use serialization::{u8_bytevec_as_bytes, u16_bytevec_as_bytes};
+
+extern crate byteorder;
+use self::byteorder::{NetworkEndian, WriteBytesExt};
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 // FIXME: We MUST call sodium_init once before we start calling functions from the lib
@@ -67,3 +72,19 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 
 	Ok(result)
 }
+
+pub fn hkdf_expand_label(secret: &Vec<u8>, label : &Vec<u8>, hashvalue : &Vec<u8>, length : u16) -> Result<Vec<u8>, TLSError> {
+	let mut buffer : Vec<u8> = vec![];
+	let mut fulllabel : Vec<u8> = label.clone();
+	fulllabel.extend("TLS 1.3, ".as_bytes());
+
+	// Serialize a HkdfLabel struct directly to the buffer
+	buffer.write_u16::<NetworkEndian>(length).unwrap();
+	buffer.extend(u16_bytevec_as_bytes(&fulllabel));
+	buffer.extend(u8_bytevec_as_bytes(hashvalue));
+
+	hkdf_expand(&secret, &buffer, length as usize)
+}
+
+// TODO: Write Transcript-Hash using streaming HMAC construct
+// TODO: Write Derive-Secret
