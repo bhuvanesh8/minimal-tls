@@ -50,8 +50,7 @@ impl Extension {
 		let second = iter.next().unwrap();
 
 		let length = ((*first as u16) << 8) | (*second as u16);
-
-        if length == 0 || length > 2^16 - 2{
+        if length == 0 || length as u32 > (2 as u32).pow(16) - 2{
             return Err(TLSError::InvalidHandshakeError)
         }
 

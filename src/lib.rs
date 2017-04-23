@@ -84,7 +84,7 @@ impl<'a> TLS_session<'a> {
         let len = dest.len();
         dest.clone_from_slice(self.recordcache.drain(0..len).collect::<Vec<u8>>().as_slice());
 
-        return Ok(len)
+        Ok(len)
     }
 
     fn read_u8(&mut self) -> Result<u8, TLSError> {
@@ -258,8 +258,9 @@ impl<'a> TLS_session<'a> {
         // Read in the list of valid cipher suites
         // In reality, for TLS 1.3, there are only 5 valid cipher suites, so this list
         // should never have more than 5 elements (10 bytes) in it.
-        let cslist_length : usize = try!(self.read_u16()) as usize;
-        if cslist_length < 2 || cslist_length > (2^16 - 2) || cslist_length % 2 != 0 {
+            let cslist_length : usize = try!(self.read_u16()) as usize;
+            let max_cslist_length: usize = ((2 as u32).pow(16) - 2) as usize;
+        if cslist_length < 2 || cslist_length > max_cslist_length || cslist_length % 2 != 0 {
             return Err(TLSError::InvalidHandshakeError)
         }
 
@@ -279,8 +280,9 @@ impl<'a> TLS_session<'a> {
         }
 
         // Parse ClientHello extensions
-        let ext_length = try!(self.read_u16()) as usize;
-        if ext_length < 8 || ext_length > 2^16-1 {
+            let ext_length = try!(self.read_u16()) as usize;
+            let max_ext_length:usize  = ( (2 as u32).pow(16) -1 ) as usize;
+        if ext_length < 8 || ext_length > max_ext_length {
             return Err(TLSError::InvalidHandshakeError)
         }
 
