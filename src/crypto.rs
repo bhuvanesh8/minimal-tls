@@ -1,6 +1,7 @@
 use std::os::raw::c_void;
-use structures::TLSError;
-use serialization::{u8_bytevec_as_bytes, u16_bytevec_as_bytes};
+use std::mem;
+use structures::{HandshakeMessage, TLSError};
+use serialization::{u8_bytevec_as_bytes, u16_bytevec_as_bytes, TLSToBytes};
 
 extern crate byteorder;
 use self::byteorder::{NetworkEndian, WriteBytesExt};
@@ -86,5 +87,28 @@ pub fn hkdf_expand_label(secret: &Vec<u8>, label : &Vec<u8>, hashvalue : &Vec<u8
 	hkdf_expand(&secret, &buffer, length as usize)
 }
 
+pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLSError> {
+
+	let mut buffer : Vec<u8> = vec![];
+
+	// This must be uninitialized because we need to create a pointer to it to initialize it
+	let mut state : crypto_hash_sha256_state = unsafe { mem::uninitialized() };
+	let stateptr = &mut state as *mut crypto_hash_sha256_state;
+	unsafe { crypto_hash_sha256_init(stateptr) };
+
+	// Just combine all the messages in the hash
+	for x in messages {
+		let bytes : Vec<u8> = x.as_bytes();
+		unsafe { crypto_hash_sha256_update(stateptr, bytes.as_ptr(), bytes.len() as u64) };
+	}
+
+	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
+
+	Ok(buffer)
+}
+
+pub fn derive_secret(secret: &Vec<u8>, label : &Vec<u8>, messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLSError> {
+	hkdf_expand_label(secret, label, &try!(transcript_hash(messages)), unsafe { crypto_auth_hmacsha256_bytes() } as u16)
+}
+
 // TODO: Write Transcript-Hash using streaming HMAC construct
-// TODO: Write Derive-Secret
