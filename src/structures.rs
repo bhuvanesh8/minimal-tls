@@ -23,6 +23,7 @@ pub enum TLSState {
 // This is a list of possible errors
 #[derive(Debug)]
 pub enum TLSError {
+    CryptoError,
     InvalidState,
     InvalidMessage,
     ReadError,

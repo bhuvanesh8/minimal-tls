@@ -25,6 +25,7 @@ mod serialization;
 mod extensions;
 mod crypto;
 
+use std::mem;
 use std::io::Read;
 use std::io::Write;
 use std::collections::HashMap;
@@ -32,6 +33,8 @@ use serialization::TLSToBytes;
 use structures::{Random, ClientHello, CipherSuite, Extension, ContentType,
                     HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError,
                     ExtensionType, NamedGroup, KeyShare};
+
+include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 // Misc. functions
 pub fn bytes_to_u16(bytes : &[u8]) -> u16 {
@@ -57,13 +60,31 @@ pub struct TLS_session<'a> {
 
 	// Cache any remaining bytes in a TLS record
     ctypecache : ContentType,
-	recordcache: Vec<u8>
+	recordcache: Vec<u8>,
+
+    // Transcript Hash state
+    th_state : crypto_hash_sha256_state,
 }
 
-pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) -> TLS_session<'a> {
-	TLS_session{reader : read, writer : write, state : TLSState::Start,
-				sent_hello_retry : false, shared_key : vec![],
-				ctypecache : ContentType::InvalidReserved, recordcache : vec![] }
+pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) -> Result<TLS_session<'a>, TLSError> {
+
+    // Call sodium_init here. According to the documentation, we can call it multiple times w/o
+    // causing any errors
+    if unsafe { sodium_init() } == -1 {
+        return Err(TLSError::CryptoError);
+    }
+
+    let mut ret = TLS_session{reader : read, writer : write, state : TLSState::Start,
+        sent_hello_retry : false, shared_key : vec![],
+        ctypecache : ContentType::InvalidReserved, recordcache : vec![],
+        th_state : unsafe { mem::uninitialized() },
+    };
+
+    // Initialize our transcript hash state
+    let stateptr = &mut ret.th_state as *mut crypto_hash_sha256_state;
+    unsafe { crypto_hash_sha256_init(stateptr) };
+
+	Ok(ret)
 }
 
 #[allow(unused_variables)]
@@ -291,14 +312,18 @@ impl<'a> TLS_session<'a> {
         // extension in the ClientHello
         try!(self.read(extensions.as_mut_slice()));
 
-        Ok(ClientHello{
+        let ret = ClientHello{
             legacy_version: legacy_version,
             random: random,
             legacy_session_id: legacy_session_id,
             cipher_suites: try!(self.process_ciphersuites(cipher_suites.as_slice())),
             legacy_compression_methods: vec![0],
             extensions: try!(self.process_extensions(extensions.as_slice()))
-        })
+        };
+
+        // Add the clienthello to the transcript hash queue
+
+        Ok(ret)
 	}
 
 	fn negotiate_ciphersuite(&mut self, ciphersuites : &Vec<CipherSuite>) -> Result<CipherSuite, TLSError> {
@@ -423,6 +448,11 @@ impl<'a> TLS_session<'a> {
 			// Loop over all messages and serialize them
 			for x in &messagequeue {
 				let ret = x.as_bytes();
+
+                // Add the message to the transcript hash state
+                let stateptr = &mut self.th_state as *mut crypto_hash_sha256_state;
+                unsafe { crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+
 				if data.len() + ret.len() > 16384 {
 					// Flush the existing messages, then continue
 					let tlsplaintext = try!(self.create_tlsplaintext(ContentType::Handshake, &data));

@@ -8,9 +8,6 @@ use self::byteorder::{NetworkEndian, WriteBytesExt};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-// FIXME: We MUST call sodium_init once before we start calling functions from the lib
-
-// FIXME: Have to look up how to get high quality rng on every platform
 pub fn gen_server_random() -> Result<[u8; 32], TLSError> {
 	let mut ret = [0; 32];
     unsafe { randombytes_buf(&mut ret as *mut _ as *mut c_void, 32) };
@@ -111,4 +108,4 @@ pub fn derive_secret(secret: &Vec<u8>, label : &Vec<u8>, messages : &Vec<Handsha
 	hkdf_expand_label(secret, label, &try!(transcript_hash(messages)), unsafe { crypto_auth_hmacsha256_bytes() } as u16)
 }
 
-// TODO: Write Transcript-Hash using streaming HMAC construct
+// TOOD: TLS cookie should use HMAC-SHA256 to encode the hash of ClientHello1 when sending HelloRetryRequest
