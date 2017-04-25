@@ -42,6 +42,10 @@ pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
     Ok(scalarmult)
 }
 
+pub fn tls13_key_schedule() -> Result<Vec<u8>, TLSError> {
+	Ok(vec![])
+}
+
 // Both of these functions are taken from RFC 5869
 pub fn hkdf_extract(salt: &Vec<u8>, ikm: &Vec<u8>) -> Result<Vec<u8>, TLSError> {
 	let mut result : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];

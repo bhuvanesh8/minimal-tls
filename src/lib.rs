@@ -32,7 +32,7 @@ use std::collections::HashMap;
 use serialization::TLSToBytes;
 use structures::{Random, ClientHello, CipherSuite, Extension, ContentType,
                     HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError,
-                    ExtensionType, NamedGroup, KeyShare};
+                    ExtensionType, NamedGroup, KeyShare, KeyShareEntry};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
@@ -336,16 +336,14 @@ impl<'a> TLS_session<'a> {
 		return Ok(CipherSuite::TLS_CHACHA20_POLY1305_SHA256)
 	}
 
-	// FIXME: Implement extension validation logic here
-	// Must have "supported_versions"
-    // Must have "signature_algorithms"
-	// Must have either "key_share" or "pre_shared_key"
-    // Must not be more than 1 extension of the same type
-    // Must not be any recognized extensions that are not valid for a ClientHello
+    // FIXME: Must not be any recognized extensions that are not valid for a ClientHello
 	fn validate_extensions(&mut self, clienthello : &ClientHello) -> Result<Vec<Extension>, TLSError> {
 
         // TODO: Check to make sure there are no duplicate extensions
         let mut processed = vec![];
+
+        // List of extensions we'll return
+        let mut ret : Vec<Extension> = vec![];
 
         // Check to make sure there is a "supported_versions" extension with TLSv1.3
         for ext in &clienthello.extensions {
@@ -389,7 +387,13 @@ impl<'a> TLS_session<'a> {
                         // We only support x25519, so make sure this is in the list
                         match (*ks).iter().find(|&x| x.group == NamedGroup::x25519) {
                             Some(x) => {
-                                // We can now perform our key exchange
+                                // Add an extension indicating our response
+                                ret.push(Extension::KeyShare(KeyShare::ServerHello(KeyShareEntry{
+                                    group: x.group,
+                                    key_exchange : x.key_exchange.clone()
+                                })));
+
+                                // Compute our x25519 shared key
                                 self.shared_key = try!(crypto::x25519_key_exchange(&x.key_exchange));
                             },
                             None => {
@@ -409,11 +413,25 @@ impl<'a> TLS_session<'a> {
             };
         }
 
-        // We require certain extensions, so make sure we have them:
-        // supported_versions
-        // signature_algorithms
+        /*
+            We require certain extensions, so make sure we have:
+            - supported_versions
+            - signature_algorithms
+            - key_share
+        */
+        if !processed.contains(&ExtensionType::KeyShare) {
+            return Err(TLSError::MissingExtension);
+        }
 
-		Err(TLSError::InvalidClientHelloExtensions)
+        if !processed.contains(&ExtensionType::SignatureAlgorithms) {
+            return Err(TLSError::MissingExtension);
+        }
+
+        if !processed.contains(&ExtensionType::SupportedVersions) {
+            return Err(TLSError::MissingExtension);
+        }
+
+		Ok(ret)
 	}
 
 	fn negotiate_serverhello(&mut self, clienthello: &ClientHello) -> Result<HandshakeMessage, TLSError> {

@@ -33,6 +33,7 @@ pub enum TLSError {
     UnsupportedCipherSuite,
     InvalidClientHelloExtensions,
     DuplicateExtensions,
+    MissingExtension,
     InvalidTLSSupportedVersion,
     InvalidKeyShare,
     InvalidKeyExchange
@@ -295,7 +296,7 @@ pub struct SignatureSchemeList {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 pub enum NamedGroup {
     /* Elliptic Curve Groups (ECDHE) */
     secp256r1 = 0x0017,
