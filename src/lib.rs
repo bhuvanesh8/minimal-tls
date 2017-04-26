@@ -36,7 +36,8 @@ use std::collections::HashMap;
 use serialization::TLSToBytes;
 use structures::{Random, ClientHello, CipherSuite, Extension, ContentType,
                     HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError,
-                    ExtensionType, NamedGroup, KeyShare, KeyShareEntry, EncryptedExtensions};
+                    ExtensionType, NamedGroup, KeyShare, KeyShareEntry,
+                    EncryptedExtensions, CertificateEntry, Certificate};
 
 // Misc. functions
 pub fn bytes_to_u16(bytes : &[u8]) -> u16 {
@@ -49,12 +50,14 @@ pub struct TLS_config {
 }
 
 pub fn tls_configure(cert_path: &str, key_path: &str) -> Result<TLS_config, TLSError> {
+    // Read certificate chain
     let mut certfile = try!(File::open(cert_path).or(Err(TLSError::InvalidCertificatePath)));
 
     let mut filebuf = String::new();
     certfile.read_to_string(&mut filebuf);
     let certificates = parse_many(&filebuf);
 
+    // Read private key
     let mut keyfile = try!(File::open(key_path).or(Err(TLSError::InvalidPrivateKeyPath)));
 
     let mut filebuf = String::new();
@@ -502,7 +505,7 @@ impl<'a> TLS_session<'a> {
 		Ok(())
 	}
 
-	fn transition(&mut self, hs_message : HandshakeMessage) -> Result<HandshakeMessage, TLSError> {
+	fn transition(&mut self, hs_message : HandshakeMessage, config : &TLS_config) -> Result<HandshakeMessage, TLSError> {
 
 		// This queue represents any server messages we need to drain after calling transition
 		let mut messagequeue : Vec<HandshakeMessage> = vec![];
@@ -588,6 +591,12 @@ impl<'a> TLS_session<'a> {
                 encryptedqueue.push((encrypted_extensions, handshakesecret.clone()));
 
                 // Send Certificate
+                let cert_message_list = config.certificates.iter().map(|x| CertificateEntry{
+                   cert_data : x.contents.clone(), extensions: vec![] 
+                }).collect();
+                let cert_message = HandshakeMessage::Certificate(Certificate{certificate_request_context: vec![], certificate_list: cert_message_list});
+                
+                encryptedqueue.push((cert_message, handshakesecret.clone()));
 
                 // Send CertificateVerify
 
@@ -643,7 +652,7 @@ impl<'a> TLS_session<'a> {
 		result
 	}
 
-	pub fn tls_start(&mut self) -> Result<(), TLSError> {
+	pub fn tls_start(&mut self, config: &TLS_config) -> Result<(), TLSError> {
 
 		// Ensure we are in the "start" state
 		if self.state != TLSState::Start {
@@ -656,7 +665,7 @@ impl<'a> TLS_session<'a> {
 		*/
         let mut hs_message = HandshakeMessage::InvalidMessage;
 		loop {
-			match self.transition(hs_message) {
+			match self.transition(hs_message, config) {
 				Err(e) => return Err(e),
 				Ok(x) => {
 					if self.state == TLSState::Connected {
