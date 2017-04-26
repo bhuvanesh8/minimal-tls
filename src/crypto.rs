@@ -4,6 +4,12 @@ use std::ptr;
 use structures::{HandshakeMessage, TLSError};
 use serialization::{u8_bytevec_as_bytes, u16_bytevec_as_bytes, TLSToBytes};
 
+extern crate openssl;
+use self::openssl::sign::Signer;
+use self::openssl::pkey::PKey;
+use self::openssl::ec::EcKey;
+use self::openssl::hash::MessageDigest;
+
 extern crate byteorder;
 use self::byteorder::{NetworkEndian, WriteBytesExt};
 
@@ -46,7 +52,7 @@ pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
 // Both of these functions are taken from RFC 5869
 pub fn hkdf_extract(salt: &Vec<u8>, ikm: &Vec<u8>) -> Result<Vec<u8>, TLSError> {
 	let mut result : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];
-	unsafe { crypto_auth_hmacsha512(result.as_mut_ptr(), ikm.as_ptr(), ikm.len() as u64, salt.as_ptr()) };
+	unsafe { crypto_auth_hmacsha256(result.as_mut_ptr(), ikm.as_ptr(), ikm.len() as u64, salt.as_ptr()) };
 
 	Ok(result)
 }
@@ -64,7 +70,7 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 		buffer.extend(prev);
 		buffer.extend(info);
 		buffer.push(x as u8);
-		unsafe { crypto_auth_hmacsha512(curr.as_mut_ptr(), prk.as_ptr(), prk.len() as u64, buffer.as_ptr()) };
+		unsafe { crypto_auth_hmacsha256(curr.as_mut_ptr(), prk.as_ptr(), prk.len() as u64, buffer.as_ptr()) };
 		result.extend(&curr);
 		curr
 	});
@@ -138,6 +144,46 @@ pub fn generate_handshake_secret(shared_key : &Vec<u8>, derivedsecret: &Vec<u8>)
 
 pub fn generate_shts(hs_secret : &Vec<u8>, th_state: &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
 	derive_secret_hashstate(hs_secret, &Vec::from("server handshake traffic secret"), &th_state)
+}
+
+pub fn generate_cert_signature(private_key: &PKey, th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
+
+	// Copy the hash state struct
+	let mut th_copy : crypto_hash_sha256_state = unsafe { mem::uninitialized() };
+	let stateptr = &mut th_copy as *mut crypto_hash_sha256_state;
+	unsafe { ptr::copy_nonoverlapping(th_state, stateptr, mem::size_of::<crypto_hash_sha256_state>()) };
+
+	// Finalize the hash
+	let mut buffer : Vec<u8> = vec![];
+	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
+
+	// Sign the buffer
+	let mut signer = try!(Signer::new(MessageDigest::sha256(), private_key).or(Err(TLSError::SignatureError)));
+	try!(signer.update(vec![0x20; 64].as_slice()).or(Err(TLSError::SignatureError)));
+	try!(signer.update(&Vec::from("TLS 1.3, server CertificateVerify")).or(Err(TLSError::SignatureError)));
+	try!(signer.update(vec![0].as_slice()).or(Err(TLSError::SignatureError)));
+	try!(signer.update(buffer.as_slice()).or(Err(TLSError::SignatureError)));
+
+	Ok(try!(signer.finish().or(Err(TLSError::SignatureError))))
+}
+
+pub fn generate_finished(hs_secret : &Vec<u8>, th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
+	let finished_key = try!(hkdf_expand_label(&hs_secret,
+		&Vec::from("finished"), &vec![], unsafe { crypto_auth_hmacsha256_bytes() } as u16));
+
+	// Copy the hash state struct
+	let mut th_copy : crypto_hash_sha256_state = unsafe { mem::uninitialized() };
+	let stateptr = &mut th_copy as *mut crypto_hash_sha256_state;
+	unsafe { ptr::copy_nonoverlapping(th_state, stateptr, mem::size_of::<crypto_hash_sha256_state>()) };
+
+	// Finalize the hash
+	let mut buffer : Vec<u8> = vec![];
+	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
+
+	let mut result : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];
+	unsafe { crypto_auth_hmacsha256(result.as_mut_ptr(), buffer.as_ptr(), buffer.len() as u64, finished_key.as_ptr()) };
+
+	Ok(result)
 }
 
 // FIXME: TLS cookie should use HMAC-SHA256 to encode the hash of ClientHello1 when sending HelloRetryRequest

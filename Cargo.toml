@@ -11,6 +11,7 @@ bindgen = "0.22.1"
 byteorder = "1"
 libc = "0.2.21"
 pem = "0.3"
+openssl = "0.9.11"
 clippy = {version = "*", optional = true}
 
 [features]

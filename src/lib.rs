@@ -37,7 +37,12 @@ use serialization::TLSToBytes;
 use structures::{Random, ClientHello, CipherSuite, Extension, ContentType,
                     HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError,
                     ExtensionType, NamedGroup, KeyShare, KeyShareEntry,
-                    EncryptedExtensions, CertificateEntry, Certificate};
+                    EncryptedExtensions, CertificateEntry, Certificate,
+                    CertificateVerify, SignatureScheme, Finished};
+
+extern crate openssl;
+use self::openssl::ec::EcKey;
+use self::openssl::pkey::PKey;
 
 // Misc. functions
 pub fn bytes_to_u16(bytes : &[u8]) -> u16 {
@@ -46,7 +51,7 @@ pub fn bytes_to_u16(bytes : &[u8]) -> u16 {
 
 pub struct TLS_config {
     certificates : Vec<Pem>,
-    private_key : Pem
+    private_key : PKey
 }
 
 pub fn tls_configure(cert_path: &str, key_path: &str) -> Result<TLS_config, TLSError> {
@@ -62,9 +67,12 @@ pub fn tls_configure(cert_path: &str, key_path: &str) -> Result<TLS_config, TLSE
 
     let mut filebuf = String::new();
     keyfile.read_to_string(&mut filebuf);
-    let privatekey = try!(parse(&filebuf).or(Err(TLSError::InvalidPrivateKeyFile)));
 
-    Ok(TLS_config{certificates: certificates, private_key: privatekey})
+    // Generate PKey object
+    let eckey = try!(EcKey::private_key_from_pem(&filebuf.as_bytes()).or(Err(TLSError::InvalidPrivateKeyFile)));
+    let private_key = try!(PKey::from_ec_key(eckey).or(Err(TLSError::InvalidPrivateKeyFile)));
+
+    Ok(TLS_config{certificates: certificates, private_key: private_key})
 }
 
 // Each connection needs to have its own TLS_session object
@@ -79,6 +87,9 @@ pub struct TLS_session<'a> {
 
     // ECDHE x25519 shared key
     shared_key : Vec<u8>,
+
+    // Application traffic secret
+    traffic_secret : Vec<u8>,
 
 	// Cache any remaining bytes in a TLS record
     ctypecache : ContentType,
@@ -97,7 +108,7 @@ pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) ->
     }
 
     let mut ret = TLS_session{reader : read, writer : write, state : TLSState::Start,
-        sent_hello_retry : false, shared_key : vec![],
+        sent_hello_retry : false, shared_key : vec![], traffic_secret : vec![],
         ctypecache : ContentType::InvalidReserved, recordcache : vec![],
         th_state : unsafe { mem::uninitialized() },
     };
@@ -573,8 +584,6 @@ impl<'a> TLS_session<'a> {
                     Certificate, CertificateVerify, and Finished messages
                 */
 
-                // FIXME: Generate and send messages
-
                 // Queue ServerHello to be sent
                 messagequeue.push(hs_message);
 
@@ -588,19 +597,53 @@ impl<'a> TLS_session<'a> {
 
                 // Send EncryptedExtensions
                 let encrypted_extensions = HandshakeMessage::EncryptedExtensions(EncryptedExtensions{extensions: vec![]});
+
+                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+                let ret = encrypted_extensions.as_bytes();
+                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+
                 encryptedqueue.push((encrypted_extensions, handshakesecret.clone()));
 
                 // Send Certificate
                 let cert_message_list = config.certificates.iter().map(|x| CertificateEntry{
-                   cert_data : x.contents.clone(), extensions: vec![] 
+                   cert_data : x.contents.clone(), extensions: vec![]
                 }).collect();
                 let cert_message = HandshakeMessage::Certificate(Certificate{certificate_request_context: vec![], certificate_list: cert_message_list});
-                
+
+                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+                let ret = cert_message.as_bytes();
+                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+
                 encryptedqueue.push((cert_message, handshakesecret.clone()));
 
                 // Send CertificateVerify
+                let signature = try!(crypto::generate_cert_signature(&config.private_key, &self.th_state));
+                let certverify_message = HandshakeMessage::CertificateVerify(
+                CertificateVerify{
+                    algorithm: SignatureScheme::ecdsa_secp256r1_sha256,
+                    signature: signature
+                });
+
+                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+                let ret = certverify_message.as_bytes();
+                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+
+                encryptedqueue.push((certverify_message, handshakesecret.clone()));
 
                 // Send Finished
+                let finished_message = HandshakeMessage::Finished(Finished{
+                    verify_data : try!(crypto::generate_finished(&handshakesecret, &self.th_state))
+                });
+
+                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+                let ret = finished_message.as_bytes();
+                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+
+                encryptedqueue.push((finished_message, handshakesecret.clone()));
+
+                // Generate server_application_traffic_secret_0
+                //let derivedsecret = try!(crypto::generate_derived_secret(&handshakesecret));
+                //self.traffic_secret = try!(crypto::generate_satf(&))
 
                 self.state = TLSState::WaitFlight2;
 				Ok(HandshakeMessage::InvalidMessage)

@@ -40,7 +40,8 @@ pub enum TLSError {
     MissingExtension,
     InvalidTLSSupportedVersion,
     InvalidKeyShare,
-    InvalidKeyExchange
+    InvalidKeyExchange,
+    SignatureError
 }
 
 #[derive(PartialEq, Copy, Clone)]
