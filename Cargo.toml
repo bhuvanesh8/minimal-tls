@@ -10,6 +10,7 @@ bindgen = "0.22.1"
 [dependencies]
 byteorder = "1"
 libc = "0.2.21"
+pem = "0.3"
 clippy = {version = "*", optional = true}
 
 [features]

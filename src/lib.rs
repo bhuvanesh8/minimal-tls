@@ -20,6 +20,8 @@
         unused_qualifications)]
 
 
+extern crate pem;
+
 mod structures;
 mod serialization;
 mod extensions;
@@ -28,13 +30,13 @@ mod crypto;
 use std::mem;
 use std::io::Read;
 use std::io::Write;
+use pem::{Pem, parse, parse_many};
+use std::fs::File;
 use std::collections::HashMap;
 use serialization::TLSToBytes;
 use structures::{Random, ClientHello, CipherSuite, Extension, ContentType,
                     HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError,
-                    ExtensionType, NamedGroup, KeyShare, KeyShareEntry};
-
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+                    ExtensionType, NamedGroup, KeyShare, KeyShareEntry, EncryptedExtensions};
 
 // Misc. functions
 pub fn bytes_to_u16(bytes : &[u8]) -> u16 {
@@ -42,7 +44,24 @@ pub fn bytes_to_u16(bytes : &[u8]) -> u16 {
 }
 
 pub struct TLS_config {
+    certificates : Vec<Pem>,
+    private_key : Pem
+}
 
+pub fn tls_configure(cert_path: &str, key_path: &str) -> Result<TLS_config, TLSError> {
+    let mut certfile = try!(File::open(cert_path).or(Err(TLSError::InvalidCertificatePath)));
+
+    let mut filebuf = String::new();
+    certfile.read_to_string(&mut filebuf);
+    let certificates = parse_many(&filebuf);
+
+    let mut keyfile = try!(File::open(key_path).or(Err(TLSError::InvalidPrivateKeyPath)));
+
+    let mut filebuf = String::new();
+    keyfile.read_to_string(&mut filebuf);
+    let privatekey = try!(parse(&filebuf).or(Err(TLSError::InvalidPrivateKeyFile)));
+
+    Ok(TLS_config{certificates: certificates, private_key: privatekey})
 }
 
 // Each connection needs to have its own TLS_session object
@@ -63,14 +82,14 @@ pub struct TLS_session<'a> {
 	recordcache: Vec<u8>,
 
     // Transcript Hash state
-    th_state : crypto_hash_sha256_state,
+    th_state : crypto::crypto_hash_sha256_state,
 }
 
 pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) -> Result<TLS_session<'a>, TLSError> {
 
     // Call sodium_init here. According to the documentation, we can call it multiple times w/o
     // causing any errors
-    if unsafe { sodium_init() } == -1 {
+    if unsafe { crypto::sodium_init() } == -1 {
         return Err(TLSError::CryptoError);
     }
 
@@ -81,8 +100,8 @@ pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) ->
     };
 
     // Initialize our transcript hash state
-    let stateptr = &mut ret.th_state as *mut crypto_hash_sha256_state;
-    unsafe { crypto_hash_sha256_init(stateptr) };
+    let stateptr = &mut ret.th_state as *mut crypto::crypto_hash_sha256_state;
+    unsafe { crypto::crypto_hash_sha256_init(stateptr) };
 
 	Ok(ret)
 }
@@ -308,7 +327,7 @@ impl<'a> TLS_session<'a> {
         }
 
         let mut extensions : Vec<u8> = vec![0; ext_length];
-        // TODO: If there is a pre_shared_key extension, it must be the last
+        // FIXME: If there is a pre_shared_key extension, it must be the last
         // extension in the ClientHello
         try!(self.read(extensions.as_mut_slice()));
 
@@ -337,9 +356,10 @@ impl<'a> TLS_session<'a> {
 	}
 
     // FIXME: Must not be any recognized extensions that are not valid for a ClientHello
+    // FIXME: Check for SNI extension
 	fn validate_extensions(&mut self, clienthello : &ClientHello) -> Result<Vec<Extension>, TLSError> {
 
-        // TODO: Check to make sure there are no duplicate extensions
+        // FIXME: Check to make sure there are no duplicate extensions
         let mut processed = vec![];
 
         // List of extensions we'll return
@@ -450,7 +470,7 @@ impl<'a> TLS_session<'a> {
         }
 
         // Go through extensions and figure out which replies we need to send
-        // TODO: It's possible that we decide to return a HelloRetryRequest here,
+        // FIXME: It's possible that we decide to return a HelloRetryRequest here,
         // so we should handle that
         let extensions : Vec<Extension> = try!(self.validate_extensions(&clienthello));
 
@@ -466,10 +486,6 @@ impl<'a> TLS_session<'a> {
 			// Loop over all messages and serialize them
 			for x in &messagequeue {
 				let ret = x.as_bytes();
-
-                // Add the message to the transcript hash state
-                let stateptr = &mut self.th_state as *mut crypto_hash_sha256_state;
-                unsafe { crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
 				if data.len() + ret.len() > 16384 {
 					// Flush the existing messages, then continue
@@ -489,12 +505,20 @@ impl<'a> TLS_session<'a> {
 	fn transition(&mut self, hs_message : HandshakeMessage) -> Result<HandshakeMessage, TLSError> {
 
 		// This queue represents any server messages we need to drain after calling transition
-		let mut messagequeue : Vec<HandshakeMessage> = Vec::new();
+		let mut messagequeue : Vec<HandshakeMessage> = vec![];
+
+        // This queue is the same as the above, but for messages that need to be encrypted
+        let mut encryptedqueue : Vec<(HandshakeMessage, Vec<u8>)> = vec![];
 
 		let result = match self.state {
 			TLSState::Start => {
 				// Try to recieve the ClientHello
 				let hs_message = HandshakeMessage::ClientHello(try!(self.read_clienthello()));
+
+                // Update transcript hash state
+                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+                let ret = hs_message.as_bytes();
+                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
 				// We can transition to the next state
 				self.state = TLSState::RecievedClientHello;
@@ -511,7 +535,13 @@ impl<'a> TLS_session<'a> {
 				// Check if this is a ServerHello or a HelloRetryRequest
 				match hs_message {
 					HandshakeMessage::ServerHello(_) => {
-						// We don't need to do anything except transition state
+
+                        // Add the message to our transcript hash state
+                        let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+                        let ret = hs_message.as_bytes();
+                        unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+
+						// We don't need to do anything else except transition state
 						self.state = TLSState::Negotiated;
 						Ok(hs_message)
 					},
@@ -541,6 +571,27 @@ impl<'a> TLS_session<'a> {
                 */
 
                 // FIXME: Generate and send messages
+
+                // Queue ServerHello to be sent
+                messagequeue.push(hs_message);
+
+                // Generate derived secret (without PSK)
+                let earlysecret = try!(crypto::generate_early_secret());
+                let derivedsecret = try!(crypto::generate_derived_secret(&earlysecret));
+
+                // Generate handshake keys
+                let handshakesecret = try!(crypto::generate_handshake_secret(&self.shared_key, &derivedsecret));
+                let server_handshake_traffic_secret = try!(crypto::generate_shts(&handshakesecret, &self.th_state));
+
+                // Send EncryptedExtensions
+                let encrypted_extensions = HandshakeMessage::EncryptedExtensions(EncryptedExtensions{extensions: vec![]});
+                encryptedqueue.push((encrypted_extensions, handshakesecret.clone()));
+
+                // Send Certificate
+
+                // Send CertificateVerify
+
+                // Send Finished
 
                 self.state = TLSState::WaitFlight2;
 				Ok(HandshakeMessage::InvalidMessage)
@@ -573,6 +624,9 @@ impl<'a> TLS_session<'a> {
 
 
 			TLSState::WaitFinished => {
+
+                // FIXME: Generate first application data key
+
                 // We're done! Advance to the connected state
                 self.state = TLSState::Connected;
                 Ok(HandshakeMessage::InvalidMessage)

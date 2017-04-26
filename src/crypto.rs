@@ -1,5 +1,6 @@
 use std::os::raw::c_void;
 use std::mem;
+use std::ptr;
 use structures::{HandshakeMessage, TLSError};
 use serialization::{u8_bytevec_as_bytes, u16_bytevec_as_bytes, TLSToBytes};
 
@@ -40,10 +41,6 @@ pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
     }
 
     Ok(scalarmult)
-}
-
-pub fn tls13_key_schedule() -> Result<Vec<u8>, TLSError> {
-	Ok(vec![])
 }
 
 // Both of these functions are taken from RFC 5869
@@ -112,4 +109,35 @@ pub fn derive_secret(secret: &Vec<u8>, label : &Vec<u8>, messages : &Vec<Handsha
 	hkdf_expand_label(secret, label, &try!(transcript_hash(messages)), unsafe { crypto_auth_hmacsha256_bytes() } as u16)
 }
 
-// TOOD: TLS cookie should use HMAC-SHA256 to encode the hash of ClientHello1 when sending HelloRetryRequest
+pub fn derive_secret_hashstate(secret: &Vec<u8>, label : &Vec<u8>, th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
+
+	// Copy the hash state struct
+	let mut th_copy : crypto_hash_sha256_state = unsafe { mem::uninitialized() };
+	let stateptr = &mut th_copy as *mut crypto_hash_sha256_state;
+	unsafe { ptr::copy_nonoverlapping(th_state, stateptr, mem::size_of::<crypto_hash_sha256_state>()) };
+
+	// Finalize the hash
+	let mut buffer : Vec<u8> = vec![];
+	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
+
+	hkdf_expand_label(secret, label, &buffer, unsafe { crypto_auth_hmacsha256_bytes() } as u16)
+}
+
+pub fn generate_early_secret() -> Result<Vec<u8>, TLSError> {
+	let hashlen = unsafe { crypto_auth_hmacsha256_bytes() };
+	hkdf_extract(&vec![0; hashlen], &vec![0; hashlen])
+}
+
+pub fn generate_derived_secret(earlysecret : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
+	derive_secret(earlysecret, &Vec::from("derived secret"), &vec![])
+}
+
+pub fn generate_handshake_secret(shared_key : &Vec<u8>, derivedsecret: &Vec<u8>) -> Result<Vec<u8>, TLSError> {
+	hkdf_extract(derivedsecret, shared_key)
+}
+
+pub fn generate_shts(hs_secret : &Vec<u8>, th_state: &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
+	derive_secret_hashstate(hs_secret, &Vec::from("server handshake traffic secret"), &th_state)
+}
+
+// FIXME: TLS cookie should use HMAC-SHA256 to encode the hash of ClientHello1 when sending HelloRetryRequest
