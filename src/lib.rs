@@ -38,7 +38,8 @@ use structures::{Random, ClientHello, CipherSuite, Extension, ContentType,
                     HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError,
                     ExtensionType, NamedGroup, KeyShare, KeyShareEntry,
                     EncryptedExtensions, CertificateEntry, Certificate,
-                    CertificateVerify, SignatureScheme, Finished};
+                    CertificateVerify, SignatureScheme, Finished,
+                    TLSCiphertext, TLSInnerPlaintext};
 
 extern crate openssl;
 use self::openssl::ec::EcKey;
@@ -88,8 +89,19 @@ pub struct TLS_session<'a> {
     // ECDHE x25519 shared key
     shared_key : Vec<u8>,
 
+    // Handshake traffic secret
+    handshake_secret : Vec<u8>,
+
     // Application traffic secret
     traffic_secret : Vec<u8>,
+
+    // Current AEAD key, iv, and nonce
+    aead_key : Vec<u8>,
+    aead_iv : Vec<u8>,
+    aead_nonce : Vec<u8>,
+
+    // Sequence number
+    sequence_number : u64,
 
 	// Cache any remaining bytes in a TLS record
     ctypecache : ContentType,
@@ -110,7 +122,8 @@ pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) ->
     let mut ret = TLS_session{reader : read, writer : write, state : TLSState::Start,
         sent_hello_retry : false, shared_key : vec![], traffic_secret : vec![],
         ctypecache : ContentType::InvalidReserved, recordcache : vec![],
-        th_state : unsafe { mem::uninitialized() },
+        th_state : unsafe { mem::uninitialized() }, handshake_secret : vec![],
+        aead_key : vec![], aead_iv : vec![], aead_nonce : vec![], sequence_number : 0, 
     };
 
     // Initialize our transcript hash state
@@ -177,12 +190,36 @@ impl<'a> TLS_session<'a> {
         Ok(())
     }
 
-    fn create_tlsplaintext(&mut self, contenttype: ContentType, data: &Vec<u8>) -> Result<TLSPlaintext, TLSError> {
-    	Err(TLSError::InvalidMessage)
+    fn create_tlsplaintext(&mut self, contenttype: ContentType, data: Vec<u8>) -> Result<TLSPlaintext, TLSError> {
+        Ok(TLSPlaintext{ctype : contenttype, legacy_record_version : 0x0301, length : data.len() as u16, fragment : data}) 
+    }
+    
+    fn create_tlsciphertext(&mut self, contenttype: ContentType, data: Vec<u8>) -> Result<TLSCiphertext, TLSError> {
+        
+        let content = try!(self.create_tlsplaintext(contenttype, data)).as_bytes();
+        let innerplaintext = TLSInnerPlaintext{content : content, ctype : contenttype, zeros : vec![]};
+
+        // Encrypt with our chosen AEAD
+        let encrypted_record = try!(crypto::aead_encrypt(&self.aead_key, &self.aead_nonce, &innerplaintext.as_bytes()));
+
+        Ok(TLSCiphertext{opaque_type : ContentType::ApplicationData, legacy_record_version : 0x0301, length : encrypted_record.len() as u16, encrypted_record : encrypted_record})
     }
 
     fn send_tlsplaintext(&mut self, tlsplaintext : TLSPlaintext) -> Result<(), TLSError> {
     	let data : Vec<u8> = (&tlsplaintext).as_bytes();
+
+        // Increment sequence number
+        self.sequence_number += 1;
+
+    	self.writer.write_all(data.as_slice()).or(Err(TLSError::ReadError))
+    }
+    
+    fn send_tlsciphertext(&mut self, tlsciphertext : TLSCiphertext) -> Result<(), TLSError> {
+    	let data : Vec<u8> = (&tlsciphertext).as_bytes();
+
+        // Increment sequence number
+        self.sequence_number += 1;
+
     	self.writer.write_all(data.as_slice()).or(Err(TLSError::ReadError))
     }
 
@@ -221,6 +258,9 @@ impl<'a> TLS_session<'a> {
             FIXME: Check if we have received a TLS Alert message here. That should always
             warrant returning an error to the caller
         */
+
+        // Increment sequence number
+        self.sequence_number += 1;
 
 		Ok(TLSPlaintext{ctype: contenttype, legacy_record_version: legacy_version, length: length, fragment: data})
 	}
@@ -503,15 +543,38 @@ impl<'a> TLS_session<'a> {
 
 				if data.len() + ret.len() > 16384 {
 					// Flush the existing messages, then continue
-					let tlsplaintext = try!(self.create_tlsplaintext(ContentType::Handshake, &data));
+					let tlsplaintext = try!(self.create_tlsplaintext(ContentType::Handshake, data.drain(..).collect()));
 					try!(self.send_tlsplaintext(tlsplaintext));
 				}
 				data.extend(ret)
 			}
 
 			// Flush any remaining messages
-			let tlsplaintext = try!(self.create_tlsplaintext(ContentType::Handshake, &data));
+			let tlsplaintext = try!(self.create_tlsplaintext(ContentType::Handshake, data));
 			try!(self.send_tlsplaintext(tlsplaintext));
+		}
+		Ok(())
+	}
+	
+    fn send_encrypted_message(&mut self, encryptedqueue : Vec<HandshakeMessage>) -> Result<(), TLSError> {
+		if encryptedqueue.len() > 0 {
+			let mut data : Vec<u8> = Vec::new();
+
+			// Loop over all messages and serialize them
+			for x in &encryptedqueue {
+				let ret = x.as_bytes();
+
+				if data.len() + ret.len() > 16384 {
+					// Flush the existing messages, then continue
+					let tlsciphertext = try!(self.create_tlsciphertext(ContentType::Handshake, data.drain(..).collect()));
+					try!(self.send_tlsciphertext(tlsciphertext));
+				}
+				data.extend(ret)
+			}
+
+			// Flush any remaining messages
+			let tlsciphertext = try!(self.create_tlsciphertext(ContentType::Handshake, data));
+			try!(self.send_tlsciphertext(tlsciphertext));
 		}
 		Ok(())
 	}
@@ -522,7 +585,7 @@ impl<'a> TLS_session<'a> {
 		let mut messagequeue : Vec<HandshakeMessage> = vec![];
 
         // This queue is the same as the above, but for messages that need to be encrypted
-        let mut encryptedqueue : Vec<(HandshakeMessage, Vec<u8>)> = vec![];
+        let mut encryptedqueue : Vec<HandshakeMessage> = vec![];
 
 		let result = match self.state {
 			TLSState::Start => {
@@ -593,7 +656,15 @@ impl<'a> TLS_session<'a> {
 
                 // Generate handshake keys
                 let handshakesecret = try!(crypto::generate_handshake_secret(&self.shared_key, &derivedsecret));
-                let server_handshake_traffic_secret = try!(crypto::generate_shts(&handshakesecret, &self.th_state));
+                self.handshake_secret = try!(crypto::generate_shts(&handshakesecret, &self.th_state));
+
+                // Generate our handshake write key and iv
+                let (aead_key, aead_iv) = try!(crypto::generate_traffic_keyring(&self.handshake_secret));
+                self.aead_key = aead_key;
+                self.aead_iv = aead_iv;
+
+                // Generate the nonce value
+                self.aead_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_iv));
 
                 // Send EncryptedExtensions
                 let encrypted_extensions = HandshakeMessage::EncryptedExtensions(EncryptedExtensions{extensions: vec![]});
@@ -602,7 +673,7 @@ impl<'a> TLS_session<'a> {
                 let ret = encrypted_extensions.as_bytes();
                 unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
-                encryptedqueue.push((encrypted_extensions, handshakesecret.clone()));
+                encryptedqueue.push(encrypted_extensions);
 
                 // Send Certificate
                 let cert_message_list = config.certificates.iter().map(|x| CertificateEntry{
@@ -614,7 +685,7 @@ impl<'a> TLS_session<'a> {
                 let ret = cert_message.as_bytes();
                 unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
-                encryptedqueue.push((cert_message, handshakesecret.clone()));
+                encryptedqueue.push(cert_message);
 
                 // Send CertificateVerify
                 let signature = try!(crypto::generate_cert_signature(&config.private_key, &self.th_state));
@@ -628,22 +699,7 @@ impl<'a> TLS_session<'a> {
                 let ret = certverify_message.as_bytes();
                 unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
-                encryptedqueue.push((certverify_message, handshakesecret.clone()));
-
-                // Send Finished
-                let finished_message = HandshakeMessage::Finished(Finished{
-                    verify_data : try!(crypto::generate_finished(&handshakesecret, &self.th_state))
-                });
-
-                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let ret = finished_message.as_bytes();
-                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
-
-                encryptedqueue.push((finished_message, handshakesecret.clone()));
-
-                // Generate server_application_traffic_secret_0
-                //let derivedsecret = try!(crypto::generate_derived_secret(&handshakesecret));
-                //self.traffic_secret = try!(crypto::generate_satf(&))
+                encryptedqueue.push(certverify_message);
 
                 self.state = TLSState::WaitFlight2;
 				Ok(HandshakeMessage::InvalidMessage)
@@ -658,7 +714,19 @@ impl<'a> TLS_session<'a> {
 			},
 
 			TLSState::WaitFlight2 => {
-                // No 0-RTT, so nothing do to here
+                
+                // Send Finished message
+                let finished_message = HandshakeMessage::Finished(Finished{
+                    verify_data : try!(crypto::generate_finished(&self.handshake_secret, &self.th_state))
+                });
+
+                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+                let ret = finished_message.as_bytes();
+                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+
+                encryptedqueue.push(finished_message);
+                
+                // No 0-RTT, so nothing else to do here
                 self.state = TLSState::WaitFinished;
 				Ok(HandshakeMessage::InvalidMessage)
 			},
@@ -677,7 +745,17 @@ impl<'a> TLS_session<'a> {
 
 			TLSState::WaitFinished => {
 
-                // FIXME: Generate first application data key
+                // Generate server_application_traffic_secret_0
+                let derivedsecret = try!(crypto::generate_derived_secret(&self.handshake_secret));
+                self.traffic_secret = try!(crypto::generate_satf(&derivedsecret, &self.th_state));
+                
+                // Generate our traffic write key and iv
+                let (aead_key, aead_iv) = try!(crypto::generate_traffic_keyring(&self.traffic_secret));
+                self.aead_key = aead_key;
+                self.aead_iv = aead_iv;
+
+                // Generate the nonce value
+                self.aead_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_iv));
 
                 // We're done! Advance to the connected state
                 self.state = TLSState::Connected;
@@ -691,6 +769,9 @@ impl<'a> TLS_session<'a> {
 
 		// Check if we need to send any messages
 		try!(self.send_message(messagequeue));
+		
+        // Check if we need to send any encrypted messages
+		try!(self.send_encrypted_message(encryptedqueue));
 
 		result
 	}
@@ -726,10 +807,29 @@ impl<'a> TLS_session<'a> {
 
 		Ok(())
 	}
+
+    // FIXME: Implement recieving alerts
+    // FIXME: Implement recieving KeyUpdate messages
+    /*pub fn tls_recieve(&mut self, config : &TLS_config, length : u64) -> Result<Vec<u8>, TLSError> {
+        let mut buffer = vec![];
+        loop {
+            if buffer.len() > length {
+                break
+            }
+
+            // Grab another TLSCiphertext
+            let tlsciphertext : TLSCiphertext = try!(self.get_next_tlsciphertext());
+            
+            // Decrypt the TLSCiphertext
+
+            // Grab the application data and append it to our buffer
+        }
+
+        Ok(buffer)
+    }*/
 }
 
 // Ideas for functions...
-// TLS_start -> handshake and connection setup
 // TLS_send -> sends plaintext
 // TLS_recieve -> recieves plaintext
 // TLS_end -> closes the connection

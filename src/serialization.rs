@@ -1,7 +1,7 @@
 extern crate byteorder;
 use self::byteorder::{NetworkEndian, WriteBytesExt};
 
-use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, ASN1Cert};
+use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, ASN1Cert, TLSInnerPlaintext, TLSCiphertext};
 
 pub trait TLSToBytes {
 	fn as_bytes(&self) -> Vec<u8>;
@@ -61,6 +61,49 @@ impl TLSToBytes for TLSPlaintext {
 
     	// Data
 		ret.extend(self.fragment.clone());
+
+		ret
+	}
+}
+
+impl TLSToBytes for TLSCiphertext {
+	fn as_bytes(&self) -> Vec<u8> {
+    	let mut ret : Vec<u8> = Vec::new();
+
+    	// Content type
+    	ret.push(self.opaque_type as u8);
+
+    	// Protocol version
+    	ret.write_u16::<NetworkEndian>(self.legacy_record_version).unwrap();
+
+    	// Data length
+    	ret.write_u16::<NetworkEndian>(self.length).unwrap();
+
+    	// Data
+		ret.extend(self.encrypted_record.clone());
+
+		ret
+	}
+}
+
+impl TLSToBytes for TLSInnerPlaintext {
+	fn as_bytes(&self) -> Vec<u8> {
+    	let mut ret : Vec<u8> = Vec::new();
+
+    	// Data length
+    	ret.write_u16::<NetworkEndian>(self.content.len() as u16).unwrap();
+
+    	// Data
+		ret.extend(self.content.clone());
+    	
+        // Content type
+    	ret.push(self.ctype as u8);
+
+        // Padding length
+        ret.write_u16::<NetworkEndian>(self.zeros.len() as u16).unwrap();
+
+        // Padding
+        ret.extend(self.zeros.clone());
 
 		ret
 	}
