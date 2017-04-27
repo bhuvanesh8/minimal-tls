@@ -214,4 +214,15 @@ pub fn aead_encrypt(write_key : &Vec<u8>, nonce : &Vec<u8>, plaintext : &Vec<u8>
     Ok(buffer)
 }
 
+pub fn aead_decrypt(read_key : &Vec<u8>, nonce : &Vec<u8>, ciphertext : &Vec<u8>, length : u64) -> Result<Vec<u8>, TLSError> {
+    let mut buffer : Vec<u8> = vec![0; length as usize];
+    let mut buffer_len : u64 = 0;
+
+    if unsafe { crypto_aead_chacha20poly1305_ietf_decrypt(buffer.as_mut_ptr(), &mut buffer_len, ptr::null_mut(),
+            ciphertext.as_ptr(), ciphertext.len() as u64, ptr::null(), 0, nonce.as_ptr(), read_key.as_ptr()) } != 0 {
+        return Err(TLSError::AEADError);
+    }   
+    Ok(buffer)
+}
+
 // FIXME: TLS cookie should use HMAC-SHA256 to encode the hash of ClientHello1 when sending HelloRetryRequest

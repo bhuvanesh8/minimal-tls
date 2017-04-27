@@ -808,6 +808,17 @@ impl<'a> TLS_session<'a> {
 		Ok(())
 	}
 
+/*
+TODO:
+    Finish get_next_tlsciphertext
+    Finish tls_recieve
+    Finish recieving alert message in get_next_tlsplaintext and get_next_tlsciphertext
+    Finish tls_close
+    Update version number from 0x0304 to the one for draft 19
+    Test with openssl client (Chrome and FF only support draft-18)
+    !!! Can do first test !!!
+*/
+
     // FIXME: Implement recieving alerts
     // FIXME: Implement recieving KeyUpdate messages
     /*pub fn tls_recieve(&mut self, config : &TLS_config, length : u64) -> Result<Vec<u8>, TLSError> {
