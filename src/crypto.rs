@@ -52,6 +52,7 @@ pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
 // Both of these functions are taken from RFC 5869
 pub fn hkdf_extract(salt: &Vec<u8>, ikm: &Vec<u8>) -> Result<Vec<u8>, TLSError> {
 	let mut result : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];
+
 	unsafe { crypto_auth_hmacsha256(result.as_mut_ptr(), ikm.as_ptr(), ikm.len() as u64, salt.as_ptr()) };
 
 	Ok(result)
@@ -64,14 +65,14 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 
 	let n = ((length as f64) / (hashlen as f64)).ceil() as usize;
 
-	(0..n).fold(vec![0; hashlen], |prev, x| {
+	(0..n).fold(vec![], |prev, x| {
 		let mut curr : Vec<u8> = vec![0; hashlen];
 		let mut buffer = Vec::with_capacity(prev.len() + info.len() + 1);
-		buffer.extend(prev);
-		buffer.extend(info);
-		buffer.push(x as u8);
-		unsafe { crypto_auth_hmacsha256(curr.as_mut_ptr(), prk.as_ptr(), prk.len() as u64, buffer.as_ptr()) };
-		result.extend(&curr);
+		buffer.extend(prev.iter());
+		buffer.extend(info.iter());
+		buffer.push((x+1) as u8);
+		unsafe { crypto_auth_hmacsha256(curr.as_mut_ptr(), buffer.as_ptr(), buffer.len() as u64, prk.as_ptr()) };
+		result.extend(curr.clone().iter());
 		curr
 	});
 
@@ -80,12 +81,12 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 
 pub fn hkdf_expand_label(secret: &Vec<u8>, label : &Vec<u8>, hashvalue : &Vec<u8>, length : u16) -> Result<Vec<u8>, TLSError> {
 	let mut buffer : Vec<u8> = vec![];
-	let mut fulllabel : Vec<u8> = label.clone();
-	fulllabel.extend("TLS 1.3, ".as_bytes());
+	let mut fulllabel : Vec<u8> = Vec::from("TLS 1.3, ");
+	fulllabel.extend(label.iter());
 
 	// Serialize a HkdfLabel struct directly to the buffer
 	buffer.write_u16::<NetworkEndian>(length).unwrap();
-	buffer.extend(u16_bytevec_as_bytes(&fulllabel).iter());
+	buffer.extend(u8_bytevec_as_bytes(&fulllabel).iter());
 	buffer.extend(u8_bytevec_as_bytes(hashvalue).iter());
 
 	hkdf_expand(&secret, &buffer, buffer.len())
@@ -117,11 +118,7 @@ pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLS
 
 pub fn derive_secret(secret: &Vec<u8>, label : &Vec<u8>, messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLSError> {
     let ret = try!(transcript_hash(messages));
-    if ret.len() == 0 {
-        hkdf_expand_label(secret, label, &vec![], 0)
-    } else {
-        hkdf_expand_label(secret, label, &ret, ret.len() as u16)
-    }
+    hkdf_expand_label(secret, label, &ret, ret.len() as u16)
 }
 
 impl Clone for crypto_hash_sha256_state {
@@ -143,7 +140,9 @@ pub fn derive_secret_hashstate(secret: &Vec<u8>, label : &Vec<u8>, th_state : &c
 	// Finalize the hash
 	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_hash_sha256_bytes() }];
 	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
-	hkdf_expand_label(secret, label, &buffer, (label.len() + unsafe{ crypto_auth_hmacsha256_bytes() }) as u16)
+	// TEST hkdf_expand_label(secret, label, &buffer, unsafe{ crypto_auth_hmacsha256_bytes() } as u16)
+	hkdf_expand_label(secret, label, &vec![0x52, 0xc0, 0x44, 0x72, 0xbd, 0xfe, 0x92, 0x97, 0x72, 0xc9, 0x8b, 0x91, 0xcf, 0x42, 0x5f, 0x78, 0xf4, 0x76, 0x59, 0xbe, 0x9d, 0x4a, 0x7d, 0x68, 0xb9, 0xe2, 0x9d, 0x16, 0x29, 0x35, 0xe9, 0xb9], unsafe{ crypto_auth_hmacsha256_bytes() } as u16)
+    
 }
 
 pub fn generate_early_secret() -> Result<Vec<u8>, TLSError> {
@@ -160,8 +159,10 @@ pub fn generate_handshake_secret(shared_key : &Vec<u8>, derivedsecret: &Vec<u8>)
 }
 
 pub fn generate_hts(hs_secret : &Vec<u8>, th_state: &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
-	Ok((try!(derive_secret_hashstate(hs_secret, &Vec::from("server handshake traffic secret"), &th_state)),
-	try!(derive_secret_hashstate(hs_secret, &Vec::from("client handshake traffic secret"), &th_state))))
+	let server_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("server handshake traffic secret"), &th_state));
+	let client_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("client handshake traffic secret"), &th_state));
+
+    Ok((server_hts, client_hts))
 }
 
 pub fn generate_cert_signature(private_key: &PKey, th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
