@@ -94,12 +94,8 @@ pub fn hkdf_expand_label(secret: &Vec<u8>, label : &Vec<u8>, hashvalue : &Vec<u8
 
 pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLSError> {
 
-	let mut buffer : Vec<u8> = vec![];
+	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];
     
-    if messages.len() == 0 {
-        return Ok(buffer)
-    }
-
 	// This must be uninitialized because we need to create a pointer to it to initialize it
 	let mut state : crypto_hash_sha256_state = unsafe { mem::uninitialized() };
 	let stateptr = &mut state as *mut crypto_hash_sha256_state;
@@ -150,8 +146,8 @@ pub fn generate_early_secret() -> Result<Vec<u8>, TLSError> {
 	hkdf_extract(&vec![0; hashlen], &vec![0; hashlen])
 }
 
-pub fn generate_derived_secret(earlysecret : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
-	derive_secret(earlysecret, &Vec::from("derived secret"), &vec![])
+pub fn generate_derived_secret(secret : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
+	derive_secret(secret, &Vec::from("derived secret"), &vec![])
 }
 
 pub fn generate_handshake_secret(shared_key : &Vec<u8>, derivedsecret: &Vec<u8>) -> Result<Vec<u8>, TLSError> {
@@ -211,8 +207,8 @@ pub fn generate_atf(derived_secret : &Vec<u8>, th_state : &crypto_hash_sha256_st
 }
 
 pub fn generate_traffic_keyring(secret : &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
-    let write_key = try!(hkdf_expand_label(secret, &Vec::from("key"), &Vec::from(""), unsafe { crypto_aead_chacha20poly1305_ietf_keybytes() } as u16)); 
-    let write_iv = try!(hkdf_expand_label(secret, &Vec::from("iv"), &Vec::from(""), unsafe { crypto_aead_chacha20poly1305_ietf_npubbytes() } as u16));
+    let write_key = try!(hkdf_expand_label(secret, &Vec::from("key"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_keybytes() } as u16)); 
+    let write_iv = try!(hkdf_expand_label(secret, &Vec::from("iv"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_npubbytes() } as u16));
     Ok((write_key, write_iv))
 }
 

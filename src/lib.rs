@@ -772,18 +772,16 @@ impl<'a> TLS_session<'a> {
                 */
 
                 // Queue ServerHello to be sent
-                println!("LENGTH BEFORE - {:?}", messagequeue.len());
                 messagequeue.push(hs_message);
-                println!("LENGTH AFTER - {:?}", messagequeue.len());
 
                 // Generate derived secret (without PSK)
                 let earlysecret = try!(crypto::generate_early_secret());
                 let derivedsecret = try!(crypto::generate_derived_secret(&earlysecret));
 
                 // Generate handshake keys
-                let handshake_secret = try!(crypto::generate_handshake_secret(&self.shared_key, &derivedsecret));
+                self.handshake_secret = try!(crypto::generate_handshake_secret(&self.shared_key, &derivedsecret));
 
-                let (server_hts, client_hts) = try!(crypto::generate_hts(&handshake_secret, &self.th_state));
+                let (server_hts, client_hts) = try!(crypto::generate_hts(&self.handshake_secret, &self.th_state));
                 
                 self.server_hts = server_hts;
                 self.client_hts = client_hts;
@@ -882,7 +880,6 @@ impl<'a> TLS_session<'a> {
 
                 // Generate server_application_traffic_secret_0
                 let derivedsecret = try!(crypto::generate_derived_secret(&self.handshake_secret));
-                assert!(false);
                 let (server_traffic_secret, client_traffic_secret) = try!(crypto::generate_atf(&derivedsecret, &self.th_state));
                 self.server_traffic_secret = server_traffic_secret;
                 self.client_traffic_secret = client_traffic_secret;
