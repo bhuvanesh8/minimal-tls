@@ -20,7 +20,7 @@ fn u16_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
 	for x in data.iter() {
 		buf.extend(x.as_bytes().iter());
 	}
-   
+
 	ret.write_u16::<NetworkEndian>(buf.len() as u16).unwrap();
     ret.extend(buf.iter());
 	ret
@@ -153,13 +153,20 @@ impl TLSToBytes for SignatureScheme {
 impl TLSToBytes for Extension {
     fn as_bytes(&self) -> Vec<u8> {
         let mut ret : Vec<u8> = vec![];
+        let mut buf : Vec<u8> = vec![];
+
+        // Write extension data length
 
         // Currently, the only extension the server sends is KeyShare
         match *self {
             Extension::KeyShare(KeyShare::ServerHello(ref inner)) => {
-                ret.write_u16::<NetworkEndian>(inner.group as u16).unwrap();
-                ret.write_u16::<NetworkEndian>(inner.key_exchange.len() as u16).unwrap();
-                ret.extend(&inner.key_exchange);
+                buf.write_u16::<NetworkEndian>(inner.group as u16).unwrap();
+                buf.write_u16::<NetworkEndian>(inner.key_exchange.len() as u16).unwrap();
+                buf.extend(&inner.key_exchange);
+
+                ret.write_u16::<NetworkEndian>(40).unwrap();
+                ret.write_u16::<NetworkEndian>(buf.len() as u16).unwrap();
+                ret.extend(buf.iter());
             }
             _ => {}
         };
