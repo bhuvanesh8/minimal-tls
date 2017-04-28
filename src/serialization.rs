@@ -16,10 +16,13 @@ pub trait TLSToBytes {
 
 fn u16_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
 	let mut ret : Vec<u8> = vec![];
-	ret.write_u16::<NetworkEndian>(data.len() as u16).unwrap();
+    let mut buf : Vec<u8> = vec![];
 	for x in data.iter() {
-		ret.extend(x.as_bytes().iter());
+		buf.extend(x.as_bytes().iter());
 	}
+   
+	ret.write_u16::<NetworkEndian>(buf.len() as u16).unwrap();
+    ret.extend(buf.iter());
 	ret
 }
 
@@ -32,10 +35,13 @@ pub fn u16_bytevec_as_bytes(data : &Vec<u8>) -> Vec<u8> {
 
 fn u8_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
 	let mut ret : Vec<u8> = vec![];
-	ret.push(data.len() as u8);
+    let mut buf : Vec<u8> = vec![];
 	for x in data.iter() {
-		ret.extend(x.as_bytes().iter());
+		buf.extend(x.as_bytes().iter());
 	}
+
+    ret.push(buf.len() as u8);
+    ret.extend(buf.iter());
 	ret
 }
 

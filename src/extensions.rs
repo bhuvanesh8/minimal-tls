@@ -101,7 +101,7 @@ impl Extension {
 			return Err(TLSError::InvalidHandshakeError)
 		}
 
-        println!("made it");
+        println!("made it - {:?}", ((*first.unwrap() as u16) << 8) | (*second.unwrap() as u16));
 
 		let namedgroup : NamedGroup = match ((*first.unwrap() as u16) << 8) | (*second.unwrap() as u16) {
 			0x0017 => NamedGroup::secp256r1,

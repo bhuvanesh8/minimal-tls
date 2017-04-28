@@ -625,7 +625,7 @@ impl<'a> TLS_session<'a> {
         let extensions : Vec<Extension> = try!(self.validate_extensions(&clienthello));
 
         Ok(HandshakeMessage::ServerHello(ServerHello{
-            version : 0x7f13, random: try!(crypto::gen_server_random()),
+            version : 0x07f13, random: try!(crypto::gen_server_random()),
             cipher_suite: ciphersuite, extensions : extensions}))
 	}
 
@@ -636,13 +636,35 @@ impl<'a> TLS_session<'a> {
 
 			// Loop over all messages and serialize them
 			for x in &messagequeue {
+
+                let msg_type = match x {
+                    &HandshakeMessage::ClientHello(_) => 1,
+                    &HandshakeMessage::ServerHello(_) => 2,
+                    &HandshakeMessage::HelloRetryRequest(_) => 5,
+                    &HandshakeMessage::EncryptedExtensions(_) => 8,
+                    &HandshakeMessage::Certificate(_) => 11,
+                    &HandshakeMessage::CertificateRequest(_) => 13,
+                    &HandshakeMessage::CertificateVerify(_) => 15,
+                    &HandshakeMessage::Finished(_) => 20,
+                    _ => 255
+                };
+
 				let ret = x.as_bytes();
 
-				if data.len() + ret.len() > 16384 {
+                let msg_len = ret.len();
+                if msg_len > 16777215 {
+                    return Err(TLSError::InvalidMessage);
+                }
+
+				if data.len() + ret.len() > (16384 - 4) {
 					// Flush the existing messages, then continue
 					let tlsplaintext = try!(self.create_tlsplaintext(ContentType::Handshake, data.drain(..).collect()));
 					try!(self.send_tlsplaintext(tlsplaintext));
 				}
+                data.push(msg_type);
+                data.push(((msg_len & 0x00ff0000) >> 16) as u8);
+                data.push(((msg_len & 0x0000ff00) >> 8) as u8);
+                data.push((msg_len & 0x000000ff) as u8);
 				data.extend(ret.iter())
 			}
 
