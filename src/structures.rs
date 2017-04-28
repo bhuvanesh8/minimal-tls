@@ -33,8 +33,14 @@ pub enum TLSError {
     ReadError,
     WriteError,
     InvalidHandshakeError,
+    InvalidHandshakeVersionError,
+    InvalidCiphertextHeader,
+    InvalidHandshakeCompression,
+    InvalidCipherSuite,
+    InvalidExtensionLength,
     InvalidClientHello,
     UnsupportedCipherSuite,
+    UnsupportedNamedGroup,
     InvalidClientHelloExtensions,
     DuplicateExtensions,
     MissingExtension,
@@ -51,7 +57,8 @@ pub enum CipherSuite {
     TLS_AES_256_GCM_SHA384 = 0x1302,
     TLS_CHACHA20_POLY1305_SHA256 = 0x1303,
     TLS_AES_128_CCM_SHA256 = 0x1304,
-    TLS_AES_128_CCM_8_SHA256 = 0x1305
+    TLS_AES_128_CCM_8_SHA256 = 0x1305,
+    TLS_EMPTY_RENEGOTIATION_INFO_SCSV = 0x00ff,
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -129,6 +136,7 @@ pub struct Alert {
     pub description : AlertDescription
 }
 
+#[derive(PartialEq)]
 pub enum HandshakeType {
     HelloRequestReserved = 0,
     ClientHello = 1,
@@ -294,6 +302,9 @@ pub enum SignatureScheme {
     /* EdDSA algorithms */
     ed25519 = 0x0807,
     ed448 = 0x0808,
+
+    /* Unknown or unsupported algorithms */
+    unknown = 0xffff,
 }
 
 
@@ -318,6 +329,8 @@ pub enum NamedGroup {
     ffdhe6144 = 0x0103,
     ffdhe8192 = 0x0104,
 
+    /* Unknown groups */
+    unknown = 0xffff,
 }
 
 pub struct NamedGroupList {

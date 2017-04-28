@@ -19,7 +19,7 @@ impl Extension {
         }
 
 		let mut ret : Vec<NamedGroup> = Vec::new();
-		for _ in 1..(length/2) {
+		for _ in 0..(length/2) {
 
 			let first = iter.next();
 			let second = iter.next();
@@ -38,7 +38,7 @@ impl Extension {
                 0x0102 => NamedGroup::ffdhe4096,
                 0x0103 => NamedGroup::ffdhe6144,
                 0x0104 => NamedGroup::ffdhe8192,
-                _ => return Err(TLSError::InvalidHandshakeError)
+                _ => NamedGroup::unknown,
             });
 		}
 
@@ -55,13 +55,15 @@ impl Extension {
         }
 
 		let mut ret : Vec<SignatureScheme> = Vec::new();
-		for _ in 1..(length/2) {
+		for _ in 0..(length/2) {
 
 			let first = iter.next();
 			let second = iter.next();
 			if first.is_none() || second.is_none() {
 				return Err(TLSError::InvalidHandshakeError)
 			}
+
+            println!("len - {:?}", ((*first.unwrap() as u16) << 8) | (*second.unwrap() as u16));
 
 			ret.push(match ((*first.unwrap() as u16) << 8) | (*second.unwrap() as u16) {
 				/* RSASSA-PKCS1-v1_5 algorithms */
@@ -83,7 +85,7 @@ impl Extension {
 				/* EdDSA algorithms */
 				0x0807 => SignatureScheme::ed25519,
 				0x0808 => SignatureScheme::ed448,
-                _ => return Err(TLSError::InvalidHandshakeError)
+                _ => SignatureScheme::unknown
             });
 		}
 
@@ -94,9 +96,12 @@ impl Extension {
 		// Parse NamedGroup
 		let first = iter.next();
 		let second = iter.next();
+
 		if first.is_none() || second.is_none() {
 			return Err(TLSError::InvalidHandshakeError)
 		}
+
+        println!("made it");
 
 		let namedgroup : NamedGroup = match ((*first.unwrap() as u16) << 8) | (*second.unwrap() as u16) {
 			0x0017 => NamedGroup::secp256r1,
@@ -109,7 +114,7 @@ impl Extension {
 			0x0102 => NamedGroup::ffdhe4096,
 			0x0103 => NamedGroup::ffdhe6144,
 			0x0104 => NamedGroup::ffdhe8192,
-			_ => return Err(TLSError::InvalidHandshakeError)
+			_ => return Err(TLSError::UnsupportedNamedGroup)
         };
 
         // Read in key_exchange data
@@ -120,6 +125,8 @@ impl Extension {
         if length < 1 {
             return Err(TLSError::InvalidHandshakeError)
         }
+        
+        println!("made it here also - {:?}", length);
 
         let ke_data : Vec<u8> = iter.take(length as usize).map(|&x| x).collect();
 
@@ -140,9 +147,16 @@ impl Extension {
             return Err(TLSError::InvalidHandshakeError)
         }
 
+        println!("len - {:?}", length);
+
         let mut kse_list : Vec<KeyShareEntry> = vec![];
 
-        for _ in 1..length {
+        // FIXME: For some reason, s_client passes this length as the total length of the
+        // vector here, NOT the number of elements in it... ?
+
+        // FIXME: Not a real fix, but it's a bug workaround...
+        // for _ in 0..length {
+        for _ in 0..1 {
         	// Parse a KeyShareEntry
         	kse_list.push(try!(Extension::parse_keyshare_entry(iter)));
         }
@@ -161,7 +175,7 @@ impl Extension {
 
         let mut ret : Vec<PskIdentity> = vec![];
 
-        for _ in 1..length {
+        for _ in 0..length {
         	let first = iter.next().unwrap();
 			let second = iter.next().unwrap();
 
@@ -199,7 +213,7 @@ impl Extension {
 
         let mut ret : Vec<PskBinderEntry> = vec![];
 
-        for _ in 1..length {
+        for _ in 0..length {
         	let first = *(iter.next().unwrap());
 
 			if first < 32 {
@@ -240,16 +254,17 @@ impl Extension {
 	}
 
 	pub fn parse_supported_versions<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
-		// TODO: Is it possible for these to ever panic?
-		let first = iter.next().unwrap();
-		let second = iter.next().unwrap();
+		
+        let first = iter.next().unwrap();
 
-		let length = ((*first as u16) << 8) | (*second as u16);
+		let length = (*first as u16);
+        println!("length is {:?}", length);
         if length < 2 || length > 254 {
             return Err(TLSError::InvalidHandshakeError)
         }
+
 		let mut ret : Vec<ProtocolVersion> = Vec::new();
-		for _ in 1..(length/2) {
+		for _ in 0..(length/2) {
 
 			let first = iter.next();
 			let second = iter.next();
@@ -279,11 +294,16 @@ impl Extension {
 		let first = iter.next().unwrap();
 
 		let length = *first as u8;
+
+        println!("length - {:?}", length);
+
         if length < 1 {
             return Err(TLSError::InvalidHandshakeError)
         }
+
         let mut ret : Vec<PskKeyExchangeMode> = vec![];
-        for _ in 1..length {
+
+        for _ in 0..length {
         	let first = iter.next();
         	if first.is_none() {
 				return Err(TLSError::InvalidHandshakeError)

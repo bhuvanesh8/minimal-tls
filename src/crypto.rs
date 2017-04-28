@@ -33,7 +33,7 @@ pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
     let mut scalarmult : Vec<u8> = vec![0; unsafe{ crypto_scalarmult_bytes() }];
 
     // Generate our secret key and public key
-    unsafe { randombytes_buf(&mut secretkey as *mut _ as *mut c_void, secretkey.len()) };
+    unsafe { randombytes_buf(secretkey.as_mut_ptr() as *mut c_void, secretkey.len()) };
     unsafe { crypto_scalarmult_base(publickey.as_mut_ptr(), secretkey.as_ptr()) };
 
     // Derive our shared key
@@ -64,7 +64,7 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 
 	let n = ((length as f64) / (hashlen as f64)).ceil() as usize;
 
-	(1..n).fold(vec![0; hashlen], |prev, x| {
+	(0..n).fold(vec![0; hashlen], |prev, x| {
 		let mut curr : Vec<u8> = vec![0; hashlen];
 		let mut buffer = Vec::with_capacity(prev.len() + info.len() + 1);
 		buffer.extend(prev);
@@ -85,15 +85,19 @@ pub fn hkdf_expand_label(secret: &Vec<u8>, label : &Vec<u8>, hashvalue : &Vec<u8
 
 	// Serialize a HkdfLabel struct directly to the buffer
 	buffer.write_u16::<NetworkEndian>(length).unwrap();
-	buffer.extend(u16_bytevec_as_bytes(&fulllabel));
-	buffer.extend(u8_bytevec_as_bytes(hashvalue));
+	buffer.extend(u16_bytevec_as_bytes(&fulllabel).iter());
+	buffer.extend(u8_bytevec_as_bytes(hashvalue).iter());
 
-	hkdf_expand(&secret, &buffer, length as usize)
+	hkdf_expand(&secret, &buffer, buffer.len())
 }
 
 pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLSError> {
 
 	let mut buffer : Vec<u8> = vec![];
+    
+    if messages.len() == 0 {
+        return Ok(buffer)
+    }
 
 	// This must be uninitialized because we need to create a pointer to it to initialize it
 	let mut state : crypto_hash_sha256_state = unsafe { mem::uninitialized() };
@@ -112,21 +116,34 @@ pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLS
 }
 
 pub fn derive_secret(secret: &Vec<u8>, label : &Vec<u8>, messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLSError> {
-	hkdf_expand_label(secret, label, &try!(transcript_hash(messages)), unsafe { crypto_auth_hmacsha256_bytes() } as u16)
+    let ret = try!(transcript_hash(messages));
+    if ret.len() == 0 {
+        hkdf_expand_label(secret, label, &vec![], 0)
+    } else {
+        hkdf_expand_label(secret, label, &ret, ret.len() as u16)
+    }
+}
+
+impl Clone for crypto_hash_sha256_state {
+    fn clone(&self) -> crypto_hash_sha256_state {
+        crypto_hash_sha256_state{
+            state : self.state,
+            count : self.count,
+            buf : self.buf
+        }
+    }
 }
 
 pub fn derive_secret_hashstate(secret: &Vec<u8>, label : &Vec<u8>, th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
 
 	// Copy the hash state struct
-	let mut th_copy : crypto_hash_sha256_state = unsafe { mem::uninitialized() };
+    let mut th_copy = (*th_state).clone();
 	let stateptr = &mut th_copy as *mut crypto_hash_sha256_state;
-	unsafe { ptr::copy_nonoverlapping(th_state, stateptr, mem::size_of::<crypto_hash_sha256_state>()) };
 
 	// Finalize the hash
-	let mut buffer : Vec<u8> = vec![];
+	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_hash_sha256_bytes() }];
 	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
-
-	hkdf_expand_label(secret, label, &buffer, unsafe { crypto_auth_hmacsha256_bytes() } as u16)
+	hkdf_expand_label(secret, label, &buffer, (label.len() + unsafe{ crypto_auth_hmacsha256_bytes() }) as u16)
 }
 
 pub fn generate_early_secret() -> Result<Vec<u8>, TLSError> {
@@ -142,19 +159,19 @@ pub fn generate_handshake_secret(shared_key : &Vec<u8>, derivedsecret: &Vec<u8>)
 	hkdf_extract(derivedsecret, shared_key)
 }
 
-pub fn generate_shts(hs_secret : &Vec<u8>, th_state: &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
-	derive_secret_hashstate(hs_secret, &Vec::from("server handshake traffic secret"), &th_state)
+pub fn generate_hts(hs_secret : &Vec<u8>, th_state: &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
+	Ok((try!(derive_secret_hashstate(hs_secret, &Vec::from("server handshake traffic secret"), &th_state)),
+	try!(derive_secret_hashstate(hs_secret, &Vec::from("client handshake traffic secret"), &th_state))))
 }
 
 pub fn generate_cert_signature(private_key: &PKey, th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
 
 	// Copy the hash state struct
-	let mut th_copy : crypto_hash_sha256_state = unsafe { mem::uninitialized() };
+    let mut th_copy = (*th_state).clone();
 	let stateptr = &mut th_copy as *mut crypto_hash_sha256_state;
-	unsafe { ptr::copy_nonoverlapping(th_state, stateptr, mem::size_of::<crypto_hash_sha256_state>()) };
 
 	// Finalize the hash
-	let mut buffer : Vec<u8> = vec![];
+	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_hash_sha256_bytes() }];
 	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
 
 	// Sign the buffer
@@ -172,12 +189,11 @@ pub fn generate_finished(hs_secret : &Vec<u8>, th_state : &crypto_hash_sha256_st
 		&Vec::from("finished"), &vec![], unsafe { crypto_auth_hmacsha256_bytes() } as u16));
 
 	// Copy the hash state struct
-	let mut th_copy : crypto_hash_sha256_state = unsafe { mem::uninitialized() };
+    let mut th_copy = (*th_state).clone();
 	let stateptr = &mut th_copy as *mut crypto_hash_sha256_state;
-	unsafe { ptr::copy_nonoverlapping(th_state, stateptr, mem::size_of::<crypto_hash_sha256_state>()) };
 
 	// Finalize the hash
-	let mut buffer : Vec<u8> = vec![];
+	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_hash_sha256_bytes() }];
 	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
 
 	let mut result : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];
@@ -186,10 +202,11 @@ pub fn generate_finished(hs_secret : &Vec<u8>, th_state : &crypto_hash_sha256_st
 	Ok(result)
 }
                 
-pub fn generate_satf(derived_secret : &Vec<u8>, th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
+pub fn generate_atf(derived_secret : &Vec<u8>, th_state : &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
 	
     let mastersecret = try!(hkdf_extract(derived_secret, &vec![0; unsafe{ crypto_auth_hmacsha256_bytes() }]));
-    derive_secret_hashstate(&mastersecret, &Vec::from("server application traffic secret"), th_state)
+    Ok((try!(derive_secret_hashstate(&mastersecret, &Vec::from("server application traffic secret"), th_state)),
+    try!(derive_secret_hashstate(&mastersecret, &Vec::from("client application traffic secret"), th_state))))
 }
 
 pub fn generate_traffic_keyring(secret : &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
@@ -199,9 +216,9 @@ pub fn generate_traffic_keyring(secret : &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>),
 }
 
 pub fn generate_nonce(sequence_number : u64, aead_iv : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
-    let mut buffer = vec![0; 4];
+    let mut buffer = vec![0; 8];
 	buffer.write_u64::<NetworkEndian>(sequence_number).unwrap();
-    Ok((1..buffer.len()).map(|x| buffer[x] ^ aead_iv[x]).collect())
+    Ok((0..buffer.len()).map(|x| buffer[x] ^ aead_iv[x]).collect())
 }
 
 pub fn aead_encrypt(write_key : &Vec<u8>, nonce : &Vec<u8>, plaintext : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
