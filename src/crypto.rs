@@ -28,8 +28,8 @@ pub fn gen_server_random() -> Result<[u8; 32], TLSError> {
 
 pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
 
-    let mut secretkey : Vec<u8> = vec![0; unsafe{ crypto_box_publickeybytes() }];
-    let mut publickey : Vec<u8> = vec![0; unsafe{ crypto_box_secretkeybytes() }];
+    let mut secretkey : Vec<u8> = vec![0; unsafe{ crypto_box_secretkeybytes() }];
+    let mut publickey : Vec<u8> = vec![0; unsafe{ crypto_box_publickeybytes() }];
     let mut scalarmult : Vec<u8> = vec![0; unsafe{ crypto_scalarmult_bytes() }];
 
     // Generate our secret key and public key
@@ -63,7 +63,10 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 
 	let hashlen = unsafe { crypto_auth_hmacsha256_bytes() };
 
-	let n = ((length as f64) / (hashlen as f64)).ceil() as usize;
+	let mut n : usize = (length / hashlen);
+	if (length % hashlen > 0) {
+		n = n + 1;
+	}
 
 	(0..n).fold(vec![], |prev, x| {
 		let mut curr : Vec<u8> = vec![0; hashlen];
@@ -76,6 +79,9 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 		curr
 	});
 
+	println!("{:?} {:?}", length, result.len());
+
+	result.truncate(length);
 	Ok(result)
 }
 
@@ -95,7 +101,7 @@ pub fn hkdf_expand_label(secret: &Vec<u8>, label : &Vec<u8>, hashvalue : &Vec<u8
 pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLSError> {
 
 	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];
-    
+
 	// This must be uninitialized because we need to create a pointer to it to initialize it
 	let mut state : crypto_hash_sha256_state = unsafe { mem::uninitialized() };
 	let stateptr = &mut state as *mut crypto_hash_sha256_state;
@@ -136,9 +142,7 @@ pub fn derive_secret_hashstate(secret: &Vec<u8>, label : &Vec<u8>, th_state : &c
 	// Finalize the hash
 	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_hash_sha256_bytes() }];
 	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
-	// TEST hkdf_expand_label(secret, label, &buffer, unsafe{ crypto_auth_hmacsha256_bytes() } as u16)
-	hkdf_expand_label(secret, label, &vec![0x52, 0xc0, 0x44, 0x72, 0xbd, 0xfe, 0x92, 0x97, 0x72, 0xc9, 0x8b, 0x91, 0xcf, 0x42, 0x5f, 0x78, 0xf4, 0x76, 0x59, 0xbe, 0x9d, 0x4a, 0x7d, 0x68, 0xb9, 0xe2, 0x9d, 0x16, 0x29, 0x35, 0xe9, 0xb9], unsafe{ crypto_auth_hmacsha256_bytes() } as u16)
-    
+	hkdf_expand_label(secret, label, &buffer, unsafe{ crypto_hash_sha256_bytes() } as u16)
 }
 
 pub fn generate_early_secret() -> Result<Vec<u8>, TLSError> {
@@ -198,28 +202,26 @@ pub fn generate_finished(hs_secret : &Vec<u8>, th_state : &crypto_hash_sha256_st
 
 	Ok(result)
 }
-                
+
 pub fn generate_atf(derived_secret : &Vec<u8>, th_state : &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
-	
     let mastersecret = try!(hkdf_extract(derived_secret, &vec![0; unsafe{ crypto_auth_hmacsha256_bytes() }]));
     Ok((try!(derive_secret_hashstate(&mastersecret, &Vec::from("server application traffic secret"), th_state)),
     try!(derive_secret_hashstate(&mastersecret, &Vec::from("client application traffic secret"), th_state))))
 }
 
 pub fn generate_traffic_keyring(secret : &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
-    let write_key = try!(hkdf_expand_label(secret, &Vec::from("key"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_keybytes() } as u16)); 
+    let write_key = try!(hkdf_expand_label(secret, &Vec::from("key"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_keybytes() } as u16));
     let write_iv = try!(hkdf_expand_label(secret, &Vec::from("iv"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_npubbytes() } as u16));
     Ok((write_key, write_iv))
 }
 
 pub fn generate_nonce(sequence_number : u64, aead_iv : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
-    let mut buffer = vec![0; 8];
+    let mut buffer = vec![0; aead_iv.len() - 8];
 	buffer.write_u64::<NetworkEndian>(sequence_number).unwrap();
     Ok((0..buffer.len()).map(|x| buffer[x] ^ aead_iv[x]).collect())
 }
 
 pub fn aead_encrypt(write_key : &Vec<u8>, nonce : &Vec<u8>, plaintext : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
-    
     // Buffer for ciphertext
     let mut buffer : Vec<u8> = vec![0; plaintext.len() + unsafe { crypto_aead_chacha20poly1305_ietf_abytes() }];
     let mut buffer_len : u64 = 0;
@@ -235,7 +237,7 @@ pub fn aead_decrypt(read_key : &Vec<u8>, nonce : &Vec<u8>, ciphertext : &Vec<u8>
     if unsafe { crypto_aead_chacha20poly1305_ietf_decrypt(buffer.as_mut_ptr(), &mut buffer_len, ptr::null_mut(),
             ciphertext.as_ptr(), ciphertext.len() as u64, ptr::null(), 0, nonce.as_ptr(), read_key.as_ptr()) } != 0 {
         return Err(TLSError::AEADError);
-    }   
+    }
     Ok(buffer)
 }
 
