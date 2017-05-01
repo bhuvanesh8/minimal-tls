@@ -26,7 +26,7 @@ pub fn gen_server_random() -> Result<[u8; 32], TLSError> {
 
 // FIXME: Check return value on libsodium functions
 
-pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
+pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
 
     let mut secretkey : Vec<u8> = vec![0; unsafe{ crypto_box_secretkeybytes() }];
     let mut publickey : Vec<u8> = vec![0; unsafe{ crypto_box_publickeybytes() }];
@@ -34,10 +34,10 @@ pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
 
     // Generate our secret key and public key
     unsafe { randombytes_buf(secretkey.as_mut_ptr() as *mut c_void, secretkey.len()) };
-    unsafe { crypto_scalarmult_base(publickey.as_mut_ptr(), secretkey.as_ptr()) };
+    unsafe { crypto_scalarmult_curve25519_base(publickey.as_mut_ptr(), secretkey.as_ptr()) };
 
     // Derive our shared key
-    if unsafe { crypto_scalarmult(scalarmult.as_mut_ptr(), secretkey.as_ptr(), client_pub.as_ptr()) } != 0 {
+    if unsafe { crypto_scalarmult_curve25519(scalarmult.as_mut_ptr(), secretkey.as_ptr(), client_pub.as_ptr()) } != 0 {
         return Err(TLSError::InvalidKeyExchange);
     }
 
@@ -46,7 +46,7 @@ pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
         return Err(TLSError::InvalidKeyExchange);
     }
 
-    Ok(scalarmult)
+    Ok((scalarmult, publickey))
 }
 
 // Both of these functions are taken from RFC 5869
@@ -75,7 +75,7 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 		buffer.extend(info.iter());
 		buffer.push((x+1) as u8);
 		unsafe { crypto_auth_hmacsha256(curr.as_mut_ptr(), buffer.as_ptr(), buffer.len() as u64, prk.as_ptr()) };
-		result.extend(curr.clone().iter());
+		result.extend(curr.iter());
 		curr
 	});
 
@@ -95,7 +95,7 @@ pub fn hkdf_expand_label(secret: &Vec<u8>, label : &Vec<u8>, hashvalue : &Vec<u8
 	buffer.extend(u8_bytevec_as_bytes(&fulllabel).iter());
 	buffer.extend(u8_bytevec_as_bytes(hashvalue).iter());
 
-	hkdf_expand(&secret, &buffer, buffer.len())
+	hkdf_expand(secret, &buffer, length as usize)
 }
 
 pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLSError> {
@@ -142,7 +142,7 @@ pub fn derive_secret_hashstate(secret: &Vec<u8>, label : &Vec<u8>, th_state : &c
 	// Finalize the hash
 	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_hash_sha256_bytes() }];
 	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
-	hkdf_expand_label(secret, label, &buffer, unsafe{ crypto_hash_sha256_bytes() } as u16)
+	hkdf_expand_label(secret, label, &buffer, buffer.len() as u16)
 }
 
 pub fn generate_early_secret() -> Result<Vec<u8>, TLSError> {
@@ -159,8 +159,8 @@ pub fn generate_handshake_secret(shared_key : &Vec<u8>, derivedsecret: &Vec<u8>)
 }
 
 pub fn generate_hts(hs_secret : &Vec<u8>, th_state: &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
-	let server_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("server handshake traffic secret"), &th_state));
-	let client_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("client handshake traffic secret"), &th_state));
+	let server_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("server handshake traffic secret"), th_state));
+	let client_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("client handshake traffic secret"), th_state));
 
     Ok((server_hts, client_hts))
 }

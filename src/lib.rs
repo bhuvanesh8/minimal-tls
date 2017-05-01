@@ -557,14 +557,15 @@ impl<'a> TLS_session<'a> {
                         // We only support x25519, so make sure this is in the list
                         match (*ks).iter().find(|&x| x.group == NamedGroup::x25519) {
                             Some(x) => {
+                                // Compute our x25519 shared key
+                                let (shared_key, server_pub) = try!(crypto::x25519_key_exchange(&x.key_exchange));
+                                self.shared_key = shared_key;
+
                                 // Add an extension indicating our response
                                 ret.push(Extension::KeyShare(KeyShare::ServerHello(KeyShareEntry{
                                     group: x.group,
-                                    key_exchange : x.key_exchange.clone()
+                                    key_exchange : server_pub
                                 })));
-
-                                // Compute our x25519 shared key
-                                self.shared_key = try!(crypto::x25519_key_exchange(&x.key_exchange));
                             },
                             None => {
                                 // FIXME: We should return a HelloRetryRequest here with x25519
@@ -780,18 +781,6 @@ impl<'a> TLS_session<'a> {
                 // Generate derived secret (without PSK)
                 let earlysecret = try!(crypto::generate_early_secret());
 
-                /*
-33 ad a 1c 60 7e c0 3b 9 e6 cd 98 93 68 c e2 10 ad f3 0 aa 1f 26 60 e1 b2 2e 10 f1 70 f9 2a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-e2 23 6 da 66 d4 53 ba 19 20 3c 54 6 54 2b 95 9f a2 8e 4a fa f8 80 1d ea e9 c2 50 93 9a f0 6d 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-e1 53 86 33 f5 39 e b8 c7 70 33 f9 0 0 0 0
-0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-*/
-
-                let earlysecret = vec![0x33, 0xad, 0xa, 0x1c, 0x60, 0x7e, 0xc0, 0x3b, 0x9, 0xe6, 0xcd, 0x98, 0x93, 0x68, 0xc, 0xe2, 0x10, 0xad, 0xf3, 0x0, 0xaa, 0x1f, 0x26, 0x60, 0xe1, 0xb2, 0x2e, 0x10, 0xf1, 0x70, 0xf9, 0x2a];
-
                 println!("earlysecret - {:?}", &earlysecret);
                 let derivedsecret = try!(crypto::generate_derived_secret(&earlysecret));
                 println!("derivedsecret - {:?}", &derivedsecret);
@@ -807,7 +796,7 @@ e1 53 86 33 f5 39 e b8 c7 70 33 f9 0 0 0 0
                 self.server_hts = server_hts;
                 self.client_hts = client_hts;
 
-                // Generate our handshake write key and iv
+                // Generate our handshake key and iv
                 let (aead_key, aead_iv) = try!(crypto::generate_traffic_keyring(&self.server_hts));
                 self.aead_write_key = aead_key;
                 self.aead_write_iv = aead_iv;
@@ -817,6 +806,9 @@ e1 53 86 33 f5 39 e b8 c7 70 33 f9 0 0 0 0
                 let (aead_key, aead_iv) = try!(crypto::generate_traffic_keyring(&self.client_hts));
                 self.aead_read_key = aead_key;
                 self.aead_read_iv = aead_iv;
+
+                println!("self.aead_read_key - {:?}", &self.aead_read_key);
+                println!("self.aead_read_iv - {:?}", &self.aead_read_iv);
 
                 // Generate the nonce value
                 self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
