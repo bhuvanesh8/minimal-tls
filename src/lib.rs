@@ -200,9 +200,9 @@ impl<'a> TLS_session<'a> {
     }
 
     fn create_tlsciphertext(&mut self, contenttype: ContentType, data: Vec<u8>) -> Result<TLSCiphertext, TLSError> {
+        let innerplaintext = TLSInnerPlaintext{content : data, ctype : contenttype, zeros : vec![]};
 
-        let content = try!(self.create_tlsplaintext(contenttype, data)).as_bytes();
-        let innerplaintext = TLSInnerPlaintext{content : content, ctype : contenttype, zeros : vec![]};
+        println!("SENDING... {:?}", &innerplaintext.as_bytes());
 
         // Encrypt with our chosen AEAD
         let encrypted_record = try!(crypto::aead_encrypt(&self.aead_write_key, &self.aead_write_nonce, &innerplaintext.as_bytes()));
@@ -691,6 +691,7 @@ impl<'a> TLS_session<'a> {
 
                 // FIXME: Count the new message header length in this
 				if data.len() + ret.len() > 16384 {
+
 					// Flush the existing messages, then continue
 					let tlsciphertext = try!(self.create_tlsciphertext(ContentType::Handshake, data.drain(..).collect()));
 					try!(self.send_tlsciphertext(tlsciphertext));
@@ -751,7 +752,6 @@ impl<'a> TLS_session<'a> {
                         let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
                         let hs_msg = HandshakeBytes { msg_type : HandshakeType::ServerHello, length : 0, body : hs_message.as_bytes() };
                         let ret = hs_msg.as_bytes();
-                        println!("ADD BYTES -> {:?}", &ret);
                         unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
 						// We don't need to do anything else except transition state

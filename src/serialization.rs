@@ -14,16 +14,29 @@ pub trait TLSToBytes {
 	uses two bytes. I think this is really silly but oh well
 */
 
-fn u16_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
+fn u24_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
 	let mut ret : Vec<u8> = vec![];
     let mut buf : Vec<u8> = vec![];
 	for x in data.iter() {
 		buf.extend(x.as_bytes().iter());
 	}
 
-	ret.write_u16::<NetworkEndian>(buf.len() as u16).unwrap();
+	ret.write_u32::<NetworkEndian>(buf.len() as u32).unwrap();
+    ret.drain(0..1);
     ret.extend(buf.iter());
 	ret
+}
+
+fn u16_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
+    let mut ret : Vec<u8> = vec![];
+    let mut buf : Vec<u8> = vec![];
+    for x in data.iter() {
+        buf.extend(x.as_bytes().iter());
+    }
+
+    ret.write_u16::<NetworkEndian>(buf.len() as u16).unwrap();
+    ret.extend(buf.iter());
+    ret
 }
 
 pub fn u16_bytevec_as_bytes(data : &Vec<u8>) -> Vec<u8> {
@@ -117,16 +130,16 @@ impl TLSToBytes for TLSInnerPlaintext {
     	let mut ret : Vec<u8> = Vec::new();
 
     	// Data length
-    	ret.write_u16::<NetworkEndian>(self.content.len() as u16).unwrap();
+    	// ret.write_u16::<NetworkEndian>(self.content.len() as u16).unwrap();
 
     	// Data
 		ret.extend(self.content.clone().iter());
-    	
+
         // Content type
     	ret.push(self.ctype as u8);
 
         // Padding length
-        ret.write_u16::<NetworkEndian>(self.zeros.len() as u16).unwrap();
+        // ret.write_u16::<NetworkEndian>(self.zeros.len() as u16).unwrap();
 
         // Padding
         ret.extend(self.zeros.clone().iter());
@@ -231,7 +244,7 @@ impl TLSToBytes for HandshakeMessage {
             },
 			HandshakeMessage::Certificate(ref inner) => {
                 ret.extend(u8_bytevec_as_bytes(&inner.certificate_request_context).iter());
-                ret.extend(u16_vector_as_bytes(&inner.certificate_list).iter());
+                ret.extend(u24_vector_as_bytes(&inner.certificate_list).iter());
             },
 			HandshakeMessage::CertificateVerify(ref inner) => {
                 ret.extend(inner.algorithm.as_bytes().iter());
