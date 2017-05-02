@@ -63,8 +63,6 @@ impl Extension {
 				return Err(TLSError::InvalidHandshakeError)
 			}
 
-            println!("len - {:?}", ((*first.unwrap() as u16) << 8) | (*second.unwrap() as u16));
-
 			ret.push(match ((*first.unwrap() as u16) << 8) | (*second.unwrap() as u16) {
 				/* RSASSA-PKCS1-v1_5 algorithms */
 				0x0201 => SignatureScheme::rsa_pkcs1_sha1,
@@ -101,8 +99,6 @@ impl Extension {
 			return Err(TLSError::InvalidHandshakeError)
 		}
 
-        println!("keyshare - {:?}", ((*first.unwrap() as u16) << 8) | (*second.unwrap() as u16));
-
 		let namedgroup : NamedGroup = match ((*first.unwrap() as u16) << 8) | (*second.unwrap() as u16) {
 			0x0017 => NamedGroup::secp256r1,
 			0x0018 => NamedGroup::secp384r1,
@@ -126,8 +122,6 @@ impl Extension {
             return Err(TLSError::InvalidHandshakeError)
         }
         
-        println!("made it here also - {:?}", length);
-
         let ke_data : Vec<u8> = iter.take(length as usize).map(|&x| x).collect();
 
         Ok(KeyShareEntry{group: namedgroup, key_exchange: ke_data})
@@ -146,8 +140,6 @@ impl Extension {
         if length < 1 {
             return Err(TLSError::InvalidHandshakeError)
         }
-
-        println!("len - {:?}", length);
 
         let mut kse_list : Vec<KeyShareEntry> = vec![];
 
@@ -258,7 +250,6 @@ impl Extension {
         let first = iter.next().unwrap();
 
 		let length = (*first as u16);
-        println!("length is {:?}", length);
         if length < 2 || length > 254 {
             return Err(TLSError::InvalidHandshakeError)
         }
@@ -294,8 +285,6 @@ impl Extension {
 		let first = iter.next().unwrap();
 
 		let length = *first as u8;
-
-        println!("length - {:?}", length);
 
         if length < 1 {
             return Err(TLSError::InvalidHandshakeError)

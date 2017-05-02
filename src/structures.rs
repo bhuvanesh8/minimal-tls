@@ -39,6 +39,7 @@ pub enum TLSError {
     InvalidCipherSuite,
     InvalidExtensionLength,
     InvalidClientHello,
+    InvalidTHMessage,
     UnsupportedCipherSuite,
     UnsupportedNamedGroup,
     InvalidClientHelloExtensions,
@@ -136,7 +137,7 @@ pub struct Alert {
     pub description : AlertDescription
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 pub enum HandshakeType {
     HelloRequestReserved = 0,
     ClientHello = 1,
@@ -176,6 +177,13 @@ pub struct Handshake {
     pub msg_type : HandshakeType,
     pub length : u32, // IMPORTANT: This is supposed to be a u24, rust has no u24 so we use u32
     pub body : HandshakeMessage
+}
+
+// Used to ease borrowing concerns in serialization when we have already serialized the body
+pub struct HandshakeBytes {
+    pub msg_type : HandshakeType,
+    pub length : u32, // IMPORTANT: This is supposed to be a u24, rust has no u24 so we use u32
+    pub body : Vec<u8>
 }
 
 pub struct ClientHello {

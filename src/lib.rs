@@ -34,12 +34,16 @@ use pem::{Pem, parse, parse_many};
 use std::fs::File;
 use std::collections::HashMap;
 use serialization::TLSToBytes;
+extern crate byteorder;
+
+use self::byteorder::{NetworkEndian, WriteBytesExt};
 use structures::{Random, ClientHello, CipherSuite, Extension, ContentType,
                     HandshakeMessage, ServerHello, TLSPlaintext, TLSState, TLSError,
                     ExtensionType, NamedGroup, KeyShare, KeyShareEntry,
                     EncryptedExtensions, CertificateEntry, Certificate,
                     CertificateVerify, SignatureScheme, Finished,
-                    TLSCiphertext, TLSInnerPlaintext, HandshakeType};
+                    TLSCiphertext, TLSInnerPlaintext, HandshakeType,
+                    HandshakeBytes};
 
 extern crate openssl;
 use self::openssl::ec::EcKey;
@@ -187,10 +191,7 @@ impl<'a> TLS_session<'a> {
         // Grab another fragment
         let tlsplaintext : TLSPlaintext = try!(self.get_next_tlsplaintext());
         self.ctypecache = tlsplaintext.ctype;
-        println!("BEFORE {:?}", self.recordcache.len());
-        println!("{:?}", tlsplaintext.fragment);
         self.recordcache.extend(tlsplaintext.fragment.iter());
-        println!("AFTER {:?}", self.recordcache.len());
         Ok(())
     }
 
@@ -273,8 +274,6 @@ impl<'a> TLS_session<'a> {
 		let mut buffer : [u8; 5] = [0; 5];
 		try!(self.reader.read_exact(&mut buffer).or(Err(TLSError::ReadError)));
 
-        println!("WE MADE IT HERE - {:?}", buffer[0]);
-
 		// Match content type (is there a better way to do this in Rust stable?)
 		let contenttype : ContentType = match buffer[0] {
 			0  => ContentType::InvalidReserved,
@@ -285,15 +284,11 @@ impl<'a> TLS_session<'a> {
 			_  => return Err(TLSError::InvalidHandshakeError)
 		};
 
-        println!("WE MADE IT HERE2");
-
 		// Match legacy protocol version
 		let legacy_version = bytes_to_u16(&buffer[1..3]);
 		if legacy_version != 0x0301 {
 			return Err(TLSError::InvalidHandshakeError)
 		}
-
-        println!("WE MADE IT HERE3");
 
 		// Make sure length is less than 2^14-1
 		let length = bytes_to_u16(&buffer[3..5]);
@@ -301,13 +296,9 @@ impl<'a> TLS_session<'a> {
 			return Err(TLSError::InvalidHandshakeError)
 		}
 
-        println!("WE MADE IT HERE4 - {:?}", length);
-
 		// Read the remaining data from the buffer
 		let mut data = vec![0; length as usize];
 		try!(self.reader.read_exact(data.as_mut_slice()).or(Err(TLSError::ReadError)));
-
-        println!("data is {:?}", &data);
 
         /*
             FIXME: Check if we have received a TLS Alert message here. That should always
@@ -358,7 +349,6 @@ impl<'a> TLS_session<'a> {
             let a = iter.next().unwrap(); let b = iter.next().unwrap();
             let extension_length = ((*a as u16) | (*b as u16));
 
-            println!("PARSING EXTENSION {:?}", extension_type);
             let result : Option<Extension> = match extension_type {
     			10 => Some(try!(Extension::parse_supported_groups(&mut iter, self))),
     			13 => Some(try!(Extension::parse_signature_algorithms(&mut iter, self))),
@@ -373,7 +363,6 @@ impl<'a> TLS_session<'a> {
     			47 => None,
     			48 => Some(try!(Extension::parse_oldfilters(&mut iter, self))),
                 _ => {
-                    println!("extension number is {:?}", ((*first as u16) << 8) | (*second as u16));
                     /* We must ignore unknown extensions, so just read the bytes */
                     for _ in 0..extension_length {
                         iter.next();
@@ -396,8 +385,6 @@ impl<'a> TLS_session<'a> {
         self.drain_recordcache();
         try!(self.fill_recordcache());
 
-        println!("MADE IT 4.5");
-
         // Make sure we are dealing with a Handshake TLSPlaintext
         if self.ctypecache != ContentType::Handshake {
             return Err(TLSError::InvalidMessage)
@@ -416,18 +403,13 @@ impl<'a> TLS_session<'a> {
 
         // Grab our legacy version
         let legacy_version: u16 = try!(self.read_u16());
-        println!("HANDHSAKE VERSION {:?}", legacy_version);
         if legacy_version != 0x0303 {
             return Err(TLSError::InvalidHandshakeVersionError)
         }
 
-        println!("MADE IT 4.6");
-
         // The client random must be exactly 32 bytes
         let mut random : Random = [0; 32];
         try!(self.read(&mut random));
-
-        println!("MADE IT 4.7");
 
         // Legacy session ID can be 0-32 bytes
         let lsi_length : usize = try!(self.read_u8()) as usize;
@@ -457,28 +439,37 @@ impl<'a> TLS_session<'a> {
             return Err(TLSError::InvalidHandshakeError)
         }
 
-        println!("MADE IT 4.9");
-
         // 0x00 is null compression
         if try!(self.read_u8()) != 0x00 {
             return Err(TLSError::InvalidHandshakeCompression)
         }
 
-        println!("MADE IT 5.0");
-
         // Parse ClientHello extensions
-            let ext_length = try!(self.read_u16()) as usize;
-            let max_ext_length:usize  = ( (2 as u32).pow(16) -1 ) as usize;
+        let ext_length = try!(self.read_u16()) as usize;
+        let max_ext_length:usize  = ( (2 as u32).pow(16) -1 ) as usize;
         if ext_length < 8 || ext_length > max_ext_length {
             return Err(TLSError::InvalidHandshakeError)
         }
-
-        println!("MADE IT 5.1");
 
         let mut extensions : Vec<u8> = vec![0; ext_length];
         // FIXME: If there is a pre_shared_key extension, it must be the last
         // extension in the ClientHello
         try!(self.read(extensions.as_mut_slice()));
+
+        // FIXME: This is a code smell. We should have a central place for parsing
+        // Any sort of HandshakeMessage
+
+        // Since we might not support all the extensions, we should just add them all to the hash now
+        let mut buffer = vec![];
+        buffer.write_u16::<NetworkEndian>(legacy_version as u16).unwrap();
+        buffer.extend(random.clone().iter());
+        buffer.extend(serialization::u8_bytevec_as_bytes(&legacy_session_id));
+        buffer.extend(serialization::u16_bytevec_as_bytes(&cipher_suites));
+        buffer.extend(serialization::u8_bytevec_as_bytes(&vec![0]));
+        buffer.extend(serialization::u16_bytevec_as_bytes(&extensions));
+        let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+        let buffer = HandshakeBytes { msg_type : HandshakeType::ClientHello, length : 0, body : buffer }.as_bytes();
+        unsafe { crypto::crypto_hash_sha256_update(stateptr, buffer.as_ptr(), buffer.len() as u64) };
 
         let ret = ClientHello{
             legacy_version: legacy_version,
@@ -650,6 +641,8 @@ impl<'a> TLS_session<'a> {
                     _ => 255
                 };
 
+                println!("ptext_msg_type: {:?}", &msg_type);
+
 				let ret = x.as_bytes();
 
                 let msg_len = ret.len();
@@ -678,17 +671,43 @@ impl<'a> TLS_session<'a> {
 
     fn send_encrypted_message(&mut self, encryptedqueue : Vec<HandshakeMessage>) -> Result<(), TLSError> {
 		if encryptedqueue.len() > 0 {
+            println!("sending encrypted messages...");
 			let mut data : Vec<u8> = Vec::new();
 
 			// Loop over all messages and serialize them
 			for x in &encryptedqueue {
+
+                let msg_type = match x {
+                    &HandshakeMessage::ClientHello(_) => 1,
+                    &HandshakeMessage::ServerHello(_) => 2,
+                    &HandshakeMessage::HelloRetryRequest(_) => 5,
+                    &HandshakeMessage::EncryptedExtensions(_) => 8,
+                    &HandshakeMessage::Certificate(_) => 11,
+                    &HandshakeMessage::CertificateRequest(_) => 13,
+                    &HandshakeMessage::CertificateVerify(_) => 15,
+                    &HandshakeMessage::Finished(_) => 20,
+                    _ => 255
+                };
+                println!("msg_type {:?}", &msg_type);
+
 				let ret = x.as_bytes();
 
+                let msg_len = ret.len();
+                if msg_len > 16777215 {
+                    return Err(TLSError::InvalidMessage);
+                }
+
+                // FIXME: Count the new message header length in this
 				if data.len() + ret.len() > 16384 {
 					// Flush the existing messages, then continue
 					let tlsciphertext = try!(self.create_tlsciphertext(ContentType::Handshake, data.drain(..).collect()));
 					try!(self.send_tlsciphertext(tlsciphertext));
 				}
+
+                data.push(msg_type as u8);
+                data.push(((msg_len & 0x00ff0000) >> 16) as u8);
+                data.push(((msg_len & 0x0000ff00) >> 8) as u8);
+                data.push((msg_len & 0x000000ff) as u8);
 				data.extend(ret.iter())
 			}
 
@@ -710,17 +729,15 @@ impl<'a> TLS_session<'a> {
 		let result = match self.state {
 			TLSState::Start => {
 				// Try to recieve the ClientHello
-                println!("MADE IT - -5");
 				let hs_message = HandshakeMessage::ClientHello(try!(self.read_clienthello()));
 
-                println!("MADE IT - 5");
-
                 // Update transcript hash state
-                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let ret = hs_message.as_bytes();
-                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+                /* let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
 
-                println!("MADE IT - 6");
+                let hs_msg = HandshakeBytes { msg_type : HandshakeType::ClientHello, length : 0, body : hs_message.as_bytes() };
+                let ret = hs_msg.as_bytes();
+
+                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) }; */
 
 				// We can transition to the next state
 				self.state = TLSState::RecievedClientHello;
@@ -740,7 +757,9 @@ impl<'a> TLS_session<'a> {
 
                         // Add the message to our transcript hash state
                         let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                        let ret = hs_message.as_bytes();
+                        let hs_msg = HandshakeBytes { msg_type : HandshakeType::ServerHello, length : 0, body : hs_message.as_bytes() };
+                        let ret = hs_msg.as_bytes();
+                        println!("ADD BYTES -> {:?}", &ret);
                         unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
 						// We don't need to do anything else except transition state
@@ -819,7 +838,8 @@ impl<'a> TLS_session<'a> {
                 let encrypted_extensions = HandshakeMessage::EncryptedExtensions(EncryptedExtensions{extensions: vec![]});
 
                 let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let ret = encrypted_extensions.as_bytes();
+                let hs_msg = HandshakeBytes { msg_type : HandshakeType::EncryptedExtensions, length : 0, body : encrypted_extensions.as_bytes() };
+                let ret = hs_msg.as_bytes();
                 unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
                 encryptedqueue.push(encrypted_extensions);
@@ -831,7 +851,8 @@ impl<'a> TLS_session<'a> {
                 let cert_message = HandshakeMessage::Certificate(Certificate{certificate_request_context: vec![], certificate_list: cert_message_list});
 
                 let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let ret = cert_message.as_bytes();
+                let hs_msg = HandshakeBytes { msg_type : HandshakeType::Certificate, length : 0, body : cert_message.as_bytes() };
+                let ret = hs_msg.as_bytes();
                 unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
                 encryptedqueue.push(cert_message);
@@ -845,7 +866,8 @@ impl<'a> TLS_session<'a> {
                 });
 
                 let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let ret = certverify_message.as_bytes();
+                let hs_msg = HandshakeBytes { msg_type : HandshakeType::CertificateVerify, length : 0, body : certverify_message.as_bytes() };
+                let ret = hs_msg.as_bytes();
                 unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
                 encryptedqueue.push(certverify_message);
@@ -870,7 +892,8 @@ impl<'a> TLS_session<'a> {
                 });
 
                 let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let ret = finished_message.as_bytes();
+                let hs_msg = HandshakeBytes { msg_type : HandshakeType::Finished, length : 0, body : finished_message.as_bytes() };
+                let ret = hs_msg.as_bytes();
                 unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
                 encryptedqueue.push(finished_message);
@@ -999,4 +1022,3 @@ TODO:
 // TLS_send -> sends plaintext
 // TLS_recieve -> recieves plaintext
 // TLS_end -> closes the connection
-

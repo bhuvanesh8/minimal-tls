@@ -1,7 +1,7 @@
 use std::os::raw::c_void;
 use std::mem;
 use std::ptr;
-use structures::{HandshakeMessage, TLSError};
+use structures::{HandshakeMessage, TLSError, HandshakeType, HandshakeBytes};
 use serialization::{u8_bytevec_as_bytes, u16_bytevec_as_bytes, TLSToBytes};
 
 extern crate openssl;
@@ -79,8 +79,6 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 		curr
 	});
 
-	println!("{:?} {:?}", length, result.len());
-
 	result.truncate(length);
 	Ok(result)
 }
@@ -109,7 +107,23 @@ pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLS
 
 	// Just combine all the messages in the hash
 	for x in messages {
-		let bytes : Vec<u8> = x.as_bytes();
+
+        // Look up type
+        let msg_type = match x {
+            &HandshakeMessage::ClientHello(_) => HandshakeType::ClientHello,
+            &HandshakeMessage::ServerHello(_) => HandshakeType::ServerHello,
+            &HandshakeMessage::EncryptedExtensions(_) => HandshakeType::EncryptedExtensions,
+            &HandshakeMessage::EndOfEarlyData(_) => HandshakeType::EndOfEarlyData,
+            &HandshakeMessage::HelloRetryRequest(_) => HandshakeType::HelloRetryRequest,
+            &HandshakeMessage::CertificateRequest(_) => HandshakeType::CertificateRequest,
+            &HandshakeMessage::Certificate(_) => HandshakeType::Certificate,
+            &HandshakeMessage::CertificateVerify(_) => HandshakeType::CertificateVerify,
+            &HandshakeMessage::Finished(_) => HandshakeType::Finished,
+            _ => { return Err(TLSError::InvalidTHMessage) }
+        };
+
+        let hs_msg = HandshakeBytes { msg_type : msg_type, length : 0, body : x.as_bytes() };
+		let bytes : Vec<u8> = hs_msg.as_bytes();
 		unsafe { crypto_hash_sha256_update(stateptr, bytes.as_ptr(), bytes.len() as u64) };
 	}
 
@@ -142,6 +156,7 @@ pub fn derive_secret_hashstate(secret: &Vec<u8>, label : &Vec<u8>, th_state : &c
 	// Finalize the hash
 	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_hash_sha256_bytes() }];
 	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
+
 	hkdf_expand_label(secret, label, &buffer, buffer.len() as u16)
 }
 

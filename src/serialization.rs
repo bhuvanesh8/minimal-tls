@@ -1,7 +1,7 @@
 extern crate byteorder;
 use self::byteorder::{NetworkEndian, WriteBytesExt};
 
-use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, ASN1Cert, TLSInnerPlaintext, TLSCiphertext, KeyShare};
+use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, ASN1Cert, TLSInnerPlaintext, TLSCiphertext, KeyShare, HandshakeBytes};
 
 pub trait TLSToBytes {
 	fn as_bytes(&self) -> Vec<u8>;
@@ -92,6 +92,26 @@ impl TLSToBytes for TLSCiphertext {
 	}
 }
 
+impl TLSToBytes for HandshakeBytes {
+	fn as_bytes(&self) -> Vec<u8> {
+    	let mut ret : Vec<u8> = Vec::new();
+
+    	// Content type
+    	ret.push(self.msg_type as u8);
+
+        // Body length -- we ignore the stored length here and just recalculate it
+        let mut length = vec![];
+        length.write_u32::<NetworkEndian>(self.body.len() as u32).unwrap();
+        length.drain(0..1);
+        ret.extend(length.iter());
+
+        // Body
+        ret.extend(self.body.iter());
+
+		ret
+	}
+}
+
 impl TLSToBytes for TLSInnerPlaintext {
 	fn as_bytes(&self) -> Vec<u8> {
     	let mut ret : Vec<u8> = Vec::new();
@@ -157,7 +177,6 @@ impl TLSToBytes for Extension {
 
         // Write extension data length
 
-        // Currently, the only extension the server sends is KeyShare
         match *self {
             Extension::KeyShare(KeyShare::ServerHello(ref inner)) => {
                 buf.write_u16::<NetworkEndian>(inner.group as u16).unwrap();
