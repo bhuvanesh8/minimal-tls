@@ -202,8 +202,6 @@ impl<'a> TLS_session<'a> {
     fn create_tlsciphertext(&mut self, contenttype: ContentType, data: Vec<u8>) -> Result<TLSCiphertext, TLSError> {
         let innerplaintext = TLSInnerPlaintext{content : data, ctype : contenttype, zeros : vec![]};
 
-        println!("SENDING... {:?}", &innerplaintext.as_bytes());
-
         // Encrypt with our chosen AEAD
         let encrypted_record = try!(crypto::aead_encrypt(&self.aead_write_key, &self.aead_write_nonce, &innerplaintext.as_bytes()));
 
@@ -225,6 +223,10 @@ impl<'a> TLS_session<'a> {
 
         // Increment sequence number
         self.sequence_number += 1;
+
+        // Update the nonce value
+        self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
+        self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
 
     	self.writer.write_all(data.as_slice()).or(Err(TLSError::ReadError));
         self.writer.flush().or(Err(TLSError::ReadError))
@@ -623,7 +625,6 @@ impl<'a> TLS_session<'a> {
 
 	fn send_message(&mut self, messagequeue : Vec<HandshakeMessage>) -> Result<(), TLSError> {
 		if messagequeue.len() > 0 {
-            println!("sending messages!");
 			let mut data : Vec<u8> = Vec::new();
 
 			// Loop over all messages and serialize them
@@ -635,8 +636,6 @@ impl<'a> TLS_session<'a> {
                     &HandshakeMessage::HelloRetryRequest(_) => 5,
                     _ => return Err(TLSError::InvalidMessage)
                 };
-
-                println!("ptext_msg_type: {:?}", &msg_type);
 
 				let ret = x.as_bytes();
 
@@ -666,7 +665,6 @@ impl<'a> TLS_session<'a> {
 
     fn send_encrypted_message(&mut self, encryptedqueue : Vec<HandshakeMessage>) -> Result<(), TLSError> {
 		if encryptedqueue.len() > 0 {
-            println!("sending encrypted messages...");
 			let mut data : Vec<u8> = Vec::new();
 
 			// Loop over all messages and serialize them
@@ -680,7 +678,6 @@ impl<'a> TLS_session<'a> {
                     &HandshakeMessage::Finished(_) => 20,
                     _ => return Err(TLSError::InvalidMessage)
                 };
-                println!("msg_type {:?}", &msg_type);
 
 				let ret = x.as_bytes();
 
@@ -821,7 +818,7 @@ impl<'a> TLS_session<'a> {
                 println!("self.aead_read_key - {:?}", &self.aead_read_key);
                 println!("self.aead_read_iv - {:?}", &self.aead_read_iv);
 
-                // Generate the nonce value
+                // Generate the initial nonce value
                 self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
                 println!("self.write_nonce - {:?}", &self.aead_write_nonce);
                 self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
