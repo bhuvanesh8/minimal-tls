@@ -633,12 +633,7 @@ impl<'a> TLS_session<'a> {
                     &HandshakeMessage::ClientHello(_) => 1,
                     &HandshakeMessage::ServerHello(_) => 2,
                     &HandshakeMessage::HelloRetryRequest(_) => 5,
-                    &HandshakeMessage::EncryptedExtensions(_) => 8,
-                    &HandshakeMessage::Certificate(_) => 11,
-                    &HandshakeMessage::CertificateRequest(_) => 13,
-                    &HandshakeMessage::CertificateVerify(_) => 15,
-                    &HandshakeMessage::Finished(_) => 20,
-                    _ => 255
+                    _ => return Err(TLSError::InvalidMessage)
                 };
 
                 println!("ptext_msg_type: {:?}", &msg_type);
@@ -678,15 +673,12 @@ impl<'a> TLS_session<'a> {
 			for x in &encryptedqueue {
 
                 let msg_type = match x {
-                    &HandshakeMessage::ClientHello(_) => 1,
-                    &HandshakeMessage::ServerHello(_) => 2,
-                    &HandshakeMessage::HelloRetryRequest(_) => 5,
                     &HandshakeMessage::EncryptedExtensions(_) => 8,
                     &HandshakeMessage::Certificate(_) => 11,
                     &HandshakeMessage::CertificateRequest(_) => 13,
                     &HandshakeMessage::CertificateVerify(_) => 15,
                     &HandshakeMessage::Finished(_) => 20,
-                    _ => 255
+                    _ => return Err(TLSError::InvalidMessage)
                 };
                 println!("msg_type {:?}", &msg_type);
 
