@@ -251,7 +251,8 @@ impl TLSToBytes for HandshakeMessage {
                 ret.extend(u16_bytevec_as_bytes(&inner.signature).iter());
             },
 			HandshakeMessage::Finished(ref inner) => {
-                ret.extend(u16_bytevec_as_bytes(&inner.verify_data).iter());
+                ret.extend(inner.verify_data.iter());
+                // ret.extend(u16_bytevec_as_bytes(&inner.verify_data).iter());
             },
 			HandshakeMessage::NewSessionTicket(ref inner) => {
                 ret.write_u32::<NetworkEndian>(inner.ticket_lifetime).unwrap();

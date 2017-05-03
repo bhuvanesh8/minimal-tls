@@ -203,6 +203,7 @@ impl<'a> TLS_session<'a> {
         let innerplaintext = TLSInnerPlaintext{content : data, ctype : contenttype, zeros : vec![]};
 
         // Encrypt with our chosen AEAD
+        println!("USING NONCE: {:?}", &self.aead_write_nonce);
         let encrypted_record = try!(crypto::aead_encrypt(&self.aead_write_key, &self.aead_write_nonce, &innerplaintext.as_bytes()));
 
         Ok(TLSCiphertext{opaque_type : ContentType::ApplicationData, legacy_record_version : 0x0301, length : encrypted_record.len() as u16, encrypted_record : encrypted_record})
@@ -874,6 +875,13 @@ impl<'a> TLS_session<'a> {
 			},
 
 			TLSState::WaitFlight2 => {
+                
+                // Set sequence number back to 0 since we are changing keys
+                self.sequence_number = 1;
+        
+                // Update the nonce value
+                self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
+                self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
 
                 // Send Finished message
                 let finished_message = HandshakeMessage::Finished(Finished{
@@ -987,11 +995,11 @@ impl<'a> TLS_session<'a> {
 /*
 TODO:
     Finish recieving alert message in get_next_tlsplaintext and get_next_tlsciphertext
+    Finish tls_send
     Finish tls_close
-    !!! Can do first test !!!
 */
 
-    pub fn tls_recieve(&mut self, dest: &mut [u8]) -> Result<usize, TLSError> {
+    pub fn tls_receive(&mut self, dest: &mut [u8]) -> Result<usize, TLSError> {
         if dest.len() > self.recordcache.len() {
             // Grab another fragment
             let tlsciphertext : TLSCiphertext = try!(self.get_next_tlsciphertext());
@@ -1006,8 +1014,3 @@ TODO:
         Ok(len)
     }
 }
-
-// Ideas for functions...
-// TLS_send -> sends plaintext
-// TLS_recieve -> recieves plaintext
-// TLS_end -> closes the connection
