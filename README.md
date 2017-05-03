@@ -1,6 +1,8 @@
 # Minimal TLS
 [Tianyi Jin](https://github.com/FreddieJin), [Cyrus Malekpour](https://github.com/cmalekpour), [Bhuvanesh Murali](https://github.com/bhuvanesh8), [Daniel Saha](https://github.com/drs5ma)
 
+**Report** - [link](https://gist.github.com/cmalekpour/6f6c0ab763678750742f687953ab584e)
+
 #### Problem
 In recent years, TLS implementations have been targeted with memory corruption or leakage issues, which they are vulnerable. Since they are implemented in C/C++, it is difficult to make these implementations resistant to such attacks. Many implementations also attempt to include a wide variety of cipher suites, which may improve client suport but drastically increases the amount of crypto code that needs to be audited and written.
 
