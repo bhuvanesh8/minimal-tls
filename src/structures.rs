@@ -17,7 +17,9 @@ pub enum TLSState {
     WaitCert,
     WaitCertificateVerify,
     WaitFinished,
-    Connected
+    Connected,
+    Error,
+    Closed
 }
 
 // This is a list of possible errors

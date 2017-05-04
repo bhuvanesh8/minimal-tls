@@ -15,6 +15,10 @@ use self::byteorder::{NetworkEndian, WriteBytesExt};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+pub fn get_hmac_length() -> usize {
+	unsafe { crypto_auth_hmacsha256_bytes() }
+}
+
 pub fn gen_server_random() -> Result<[u8; 32], TLSError> {
 	let mut ret = [0; 32];
     unsafe { randombytes_buf(&mut ret as *mut _ as *mut c_void, 32) };
@@ -254,6 +258,26 @@ pub fn aead_decrypt(read_key : &Vec<u8>, nonce : &Vec<u8>, ciphertext : &Vec<u8>
         return Err(TLSError::AEADError);
     }
     Ok(buffer)
+}
+
+pub fn verify_finished(th_state : &crypto_hash_sha256_state, hs_secret : &Vec<u8>, verify_data : &Vec<u8>) -> Result<(), TLSError> {
+	let finished_key = try!(hkdf_expand_label(&hs_secret,
+		&Vec::from("finished"), &vec![], unsafe { crypto_auth_hmacsha256_bytes() } as u16));
+
+	// Copy the hash state struct
+    let mut th_copy = (*th_state).clone();
+	let stateptr = &mut th_copy as *mut crypto_hash_sha256_state;
+
+	// Finalize the hash
+	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_hash_sha256_bytes() }];
+	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
+
+	let mut result : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];
+	if unsafe { crypto_auth_hmacsha256_verify(verify_data.as_ptr(), buffer.as_ptr(), buffer.len() as u64, finished_key.as_ptr()) } != 0 {
+		Err(TLSError::AEADError)
+	} else {
+		Ok(())
+	}
 }
 
 // FIXME: TLS cookie should use HMAC-SHA256 to encode the hash of ClientHello1 when sending HelloRetryRequest

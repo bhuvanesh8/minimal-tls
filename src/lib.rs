@@ -383,6 +383,35 @@ impl<'a> TLS_session<'a> {
 		Ok(ret)
 	}
 
+    // FIXME: This should use TLSCiphertext read messages, not TLSPlaintext read functions
+    fn read_finished(&mut self) -> Result<Finished, TLSError> {
+        // Fill our cache before we start reading
+        self.drain_recordcache();
+        try!(self.fill_recordcache());
+
+        // Make sure we are dealing with a Handshake TLSPlaintext
+        if self.ctypecache != ContentType::Handshake {
+            return Err(TLSError::InvalidMessage)
+        }
+
+        // Make sure this is a Finished message
+        let msg_type : u8 = try!(self.read_u8());
+        if msg_type != 20 {
+            return Err(TLSError::InvalidMessage)
+        }
+
+        // Grab our overall message length here
+        // FIXME: Use this to prebuffer the whole Finished message
+        let mut len : Vec<u8> = vec![0; 3];
+        try!(self.read(len.as_mut_slice()));
+
+        // We know the length of the body will be Hash.length, so just read it in directly
+        let mut verify_data : Vec<u8> = vec![0; crypto::get_hmac_length() ];
+        try!(self.read(verify_data.as_mut_slice()));
+
+        Ok(Finished { verify_data : verify_data })
+    }
+
 	fn read_clienthello(&mut self) -> Result<ClientHello, TLSError> {
         // Fill our cache before we start reading
         self.drain_recordcache();
@@ -778,7 +807,7 @@ impl<'a> TLS_session<'a> {
 
                 /*
                     We need to send the ServerHello, EncryptedExtensions,
-                    Certificate, CertificateVerify, and Finished messages
+                    Certificate, and CertificateVerify messages
                 */
 
                 // Queue ServerHello to be sent
@@ -875,10 +904,10 @@ impl<'a> TLS_session<'a> {
 			},
 
 			TLSState::WaitFlight2 => {
-                
+
                 // Set sequence number back to 0 since we are changing keys
                 self.sequence_number = 1;
-        
+
                 // Update the nonce value
                 self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
                 self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
@@ -914,6 +943,14 @@ impl<'a> TLS_session<'a> {
 
 			TLSState::WaitFinished => {
 
+                let finished_message = try!(self.read_finished());
+
+                // Verify the message
+                if let Err(x) = crypto::verify_finished(&self.th_state, &self.client_hts, &finished_message.verify_data) {
+                    self.state = TLSState::Error;
+                    return Err(x)
+                };
+
                 // Set sequence number back to 0 since we are changing keys
                 self.sequence_number = 0;
 
@@ -944,6 +981,14 @@ impl<'a> TLS_session<'a> {
                 // Nowhere else to go from here
                 Ok(HandshakeMessage::InvalidMessage)
 			},
+            TLSState::Closed => {
+                // The connection has been closed, so we shouldn't attempt to resume or continue it
+                Ok(HandshakeMessage::InvalidMessage)
+            },
+            TLSState::Error => {
+                // We encountered some error, and we shouldn't attempt to resume this connection
+                Ok(HandshakeMessage::InvalidMessage)
+            },
 		};
 
 		// Check if we need to send any messages
