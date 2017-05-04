@@ -229,8 +229,17 @@ impl<'a> TLS_session<'a> {
         // Grab another fragment
         let tlsciphertext : TLSCiphertext = try!(self.get_next_tlsciphertext());
 
+        println!("decrypt key: {:?}", &self.aead_read_key);
+        println!("decrypt nonce: {:?}", &self.aead_read_nonce);
+
         // Decrypt the data
-        self.recordcache.extend(try!(crypto::aead_decrypt(&self.aead_read_key, &self.aead_read_nonce, &tlsciphertext.encrypted_record, tlsciphertext.length as u64)).iter());
+        self.recordcache.extend(try!(crypto::aead_decrypt(&self.aead_read_key, &self.aead_read_iv, &tlsciphertext.encrypted_record)).iter());
+        
+        // Increment sequence number
+        self.sequence_number += 1;
+        self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
+        self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
+
         Ok(())
     }
 
@@ -242,7 +251,6 @@ impl<'a> TLS_session<'a> {
         let innerplaintext = TLSInnerPlaintext{content : data, ctype : contenttype, zeros : vec![]};
 
         // Encrypt with our chosen AEAD
-        println!("USING NONCE: {:?}", &self.aead_write_nonce);
         let encrypted_record = try!(crypto::aead_encrypt(&self.aead_write_key, &self.aead_write_nonce, &innerplaintext.as_bytes()));
 
         Ok(TLSCiphertext{opaque_type : ContentType::ApplicationData, legacy_record_version : 0x0301, length : encrypted_record.len() as u16, encrypted_record : encrypted_record})
@@ -301,11 +309,6 @@ impl<'a> TLS_session<'a> {
             FIXME: Check if we have received a TLS Alert message here. That should always
             warrant returning an error to the caller
         */
-
-        // Increment sequence number
-        self.sequence_number += 1;
-        self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
-        self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
 
         Ok(TLSCiphertext{opaque_type : contenttype, legacy_record_version : legacy_version, length : length, encrypted_record : encrypted_record})
 	}
@@ -435,13 +438,16 @@ impl<'a> TLS_session<'a> {
         }
 
         // Grab our overall message length here
-        // FIXME: Use this to prebuffer the whole Finished message
         let mut len : Vec<u8> = vec![0; 3];
         try!(self.read_encrypted(len.as_mut_slice()));
 
-        // We know the length of the body will be Hash.length, so just read it in directly
-        let mut verify_data : Vec<u8> = vec![0; crypto::get_hmac_length() ];
-        try!(self.read_encrypted(verify_data.as_mut_slice()));
+        let length : u32 = ((len[0] as u32) << 16) | ((len[1] as u32) << 8) | (len[2] as u32);
+
+        // Read in the entire TLSInnerPlaintext
+        let mut buffer : Vec<u8> = vec![0; length as usize];
+        try!(self.read_encrypted(buffer.as_mut_slice()));
+
+        let verify_data = buffer.drain(0..crypto::get_hmac_length()).collect();
 
         Ok(Finished { verify_data : verify_data })
     }
@@ -581,7 +587,6 @@ impl<'a> TLS_session<'a> {
 
                     // Make sure the client supports TLS 1.3 draft 19
                     if !sv.versions.contains(&0x7f13) {
-                        println!("{:?}", sv.versions);
                         return Err(TLSError::InvalidTLSSupportedVersion);
                     }
 
@@ -850,9 +855,7 @@ impl<'a> TLS_session<'a> {
                 // Generate derived secret (without PSK)
                 let earlysecret = try!(crypto::generate_early_secret());
 
-                println!("earlysecret - {:?}", &earlysecret);
                 let derivedsecret = try!(crypto::generate_derived_secret(&earlysecret));
-                println!("derivedsecret - {:?}", &derivedsecret);
 
                 // Generate handshake keys
                 self.handshake_secret = try!(crypto::generate_handshake_secret(&self.shared_key, &derivedsecret));
@@ -976,9 +979,6 @@ impl<'a> TLS_session<'a> {
                 let ret = HandshakeMessage::Finished(finished_message).as_bytes();
                 unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
-                println!("made it here!");
-                assert!(false);
-
                 // Set sequence number back to 0 since we are changing keys
                 self.sequence_number = 0;
 
@@ -1057,11 +1057,6 @@ impl<'a> TLS_session<'a> {
 			return Err(TLSError::InvalidState)
 		}
 
-        // Flush our recordcache (but it should be 0 anyways)
-        if self.recordcache.len() != 0 {
-            return Err(TLSError::InvalidState)
-        }
-
 		Ok(())
 	}
 
@@ -1073,17 +1068,6 @@ TODO:
 */
 
     pub fn tls_receive(&mut self, dest: &mut [u8]) -> Result<usize, TLSError> {
-        if dest.len() > self.recordcache.len() {
-            // Grab another fragment
-            let tlsciphertext : TLSCiphertext = try!(self.get_next_tlsciphertext());
-
-            // Decrypt the data
-            self.recordcache.extend(try!(crypto::aead_decrypt(&self.aead_read_key, &self.aead_read_nonce, &tlsciphertext.encrypted_record, tlsciphertext.length as u64)).iter());
-        }
-
-        let len = dest.len();
-        dest.clone_from_slice(self.recordcache.drain(0..len).collect::<Vec<u8>>().as_slice());
-
-        Ok(len)
+        self.read(dest)
     }
 }

@@ -25,7 +25,7 @@ fn handle_client(stream: TcpStream, tlsconfig : &TLS_config){
     }
 
     let mut buf = vec![0; 16];
-    connection.tls_receive(&mut buf);
+    println!("read {:?} bytes", connection.tls_receive(&mut buf).unwrap());
     println!("data: {:?}", buf);
     println!("closing connection");
 }
