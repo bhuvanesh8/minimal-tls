@@ -238,8 +238,18 @@ impl<'a> TLS_session<'a> {
             None => return Err(TLSError::InvalidMessage)
         };
 
+        // Set our content type
+        self.ctypecache = match decrypted[end] {
+            0  => ContentType::InvalidReserved,
+            20 => ContentType::ChangeCipherSpecReserved,
+            21 => ContentType::Alert,
+            22 => ContentType::Handshake,
+            23 => ContentType::ApplicationData,
+            _  => return Err(TLSError::InvalidMessage)
+        };
+
         // Chop one off for the content type
-        self.recordcache.extend(decrypted.drain(0..(end-1)));
+        self.recordcache.extend(decrypted.drain(0..(end)));
 
         // Increment sequence number
         self.sequence_number += 1;
@@ -450,10 +460,8 @@ impl<'a> TLS_session<'a> {
         let length : u32 = ((len[0] as u32) << 16) | ((len[1] as u32) << 8) | (len[2] as u32);
 
         // Read in the entire TLSInnerPlaintext
-        let mut buffer : Vec<u8> = vec![0; length as usize];
-        try!(self.read_encrypted(buffer.as_mut_slice()));
-
-        let verify_data = buffer.drain(0..crypto::get_hmac_length()).collect();
+        let mut verify_data : Vec<u8> = vec![0; length as usize];
+        try!(self.read_encrypted(verify_data.as_mut_slice()));
 
         Ok(Finished { verify_data : verify_data })
     }
@@ -865,12 +873,8 @@ impl<'a> TLS_session<'a> {
 
                 // Generate handshake keys
                 self.handshake_secret = try!(crypto::generate_handshake_secret(&self.shared_key, &derivedsecret));
-                println!("self.handshake_secret - {:?}", &self.handshake_secret);
 
                 let (server_hts, client_hts) = try!(crypto::generate_hts(&self.handshake_secret, &self.th_state));
-                println!("server_hts - {:?}", &server_hts);
-                println!("client_hts - {:?}", &client_hts);
-
                 self.server_hts = server_hts;
                 self.client_hts = client_hts;
 
@@ -878,19 +882,13 @@ impl<'a> TLS_session<'a> {
                 let (aead_key, aead_iv) = try!(crypto::generate_traffic_keyring(&self.server_hts));
                 self.aead_write_key = aead_key;
                 self.aead_write_iv = aead_iv;
-                println!("self.aead_write_key - {:?}", &self.aead_write_key);
-                println!("self.aead_write_iv - {:?}", &self.aead_write_iv);
 
                 let (aead_key, aead_iv) = try!(crypto::generate_traffic_keyring(&self.client_hts));
                 self.aead_read_key = aead_key;
                 self.aead_read_iv = aead_iv;
 
-                println!("self.aead_read_key - {:?}", &self.aead_read_key);
-                println!("self.aead_read_iv - {:?}", &self.aead_read_iv);
-
                 // Generate the initial nonce value
                 self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
-                println!("self.write_nonce - {:?}", &self.aead_write_nonce);
                 self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
 
                 // Send EncryptedExtensions
@@ -976,6 +974,8 @@ impl<'a> TLS_session<'a> {
 
 			TLSState::WaitFinished => {
 
+                // Reset the sequence number and nonce value
+                self.sequence_number = 0;
                 self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
                 self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
 
@@ -988,7 +988,7 @@ impl<'a> TLS_session<'a> {
                 let ret = HandshakeMessage::Finished(finished_message).as_bytes();
                 unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
 
-                // Generate server_application_traffic_secret_0
+                // Generate application traffic secret
                 let derivedsecret = try!(crypto::generate_derived_secret(&self.handshake_secret));
                 let (server_traffic_secret, client_traffic_secret) = try!(crypto::generate_atf(&derivedsecret, &self.th_state));
                 self.server_traffic_secret = server_traffic_secret;
@@ -1007,6 +1007,11 @@ impl<'a> TLS_session<'a> {
                 self.sequence_number = 0;
                 self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
                 self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
+
+                // Record cache should be empty because we are changing keys
+                if self.recordcache.len() != 0 {
+                    return Err(TLSError::InvalidState)
+                }
 
                 // We're done! Advance to the connected state
                 self.state = TLSState::Connected;

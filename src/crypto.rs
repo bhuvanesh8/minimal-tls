@@ -266,9 +266,6 @@ pub fn verify_finished(th_state : &crypto_hash_sha256_state, hs_secret : &Vec<u8
 	let finished_key = try!(hkdf_expand_label(&hs_secret,
 		&Vec::from("finished"), &vec![], unsafe { crypto_auth_hmacsha256_bytes() } as u16));
 
-    println!("HTS: {:?}", &hs_secret);
-    println!("FK: {:?}", &finished_key);
-
 	// Copy the hash state struct
     let mut th_copy = (*th_state).clone();
 	let stateptr = &mut th_copy as *mut crypto_hash_sha256_state;
