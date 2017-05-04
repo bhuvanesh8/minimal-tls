@@ -6,11 +6,7 @@ use minimal_tls::*;
 
 use std::net::{TcpListener, TcpStream};
 use std::io::{BufReader, BufWriter};
-use std::io::BufRead;
-use std::thread;
 use std::str;
-use std::rc::Rc;
-use std::io::{Read, Write, Result};
 
 fn handle_client(stream: TcpStream, tlsconfig : &TLS_config){
 

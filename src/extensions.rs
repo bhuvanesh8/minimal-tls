@@ -121,7 +121,7 @@ impl Extension {
         if length < 1 {
             return Err(TLSError::InvalidHandshakeError)
         }
-        
+
         let ke_data : Vec<u8> = iter.take(length as usize).map(|&x| x).collect();
 
         Ok(KeyShareEntry{group: namedgroup, key_exchange: ke_data})
@@ -246,10 +246,10 @@ impl Extension {
 	}
 
 	pub fn parse_supported_versions<'a>(iter: &mut Iter<'a, u8>, tlsconfig: &TLS_session) -> Result<Extension, TLSError> {
-		
+
         let first = iter.next().unwrap();
 
-		let length = (*first as u16);
+		let length = *first as u16;
         if length < 2 || length > 254 {
             return Err(TLSError::InvalidHandshakeError)
         }

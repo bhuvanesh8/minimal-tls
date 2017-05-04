@@ -181,7 +181,7 @@ impl<'a> TLS_session<'a> {
 
         Ok(self.recordcache.remove(0))
     }
-    
+
     fn read_u8_encrypted(&mut self) -> Result<u8, TLSError> {
         if self.recordcache.len() < 1 {
             // Grab another fragment
@@ -201,7 +201,7 @@ impl<'a> TLS_session<'a> {
         let second = self.recordcache.remove(0);
         Ok(((first as u16) << 8) | (second as u16))
     }
-    
+
     fn read_u16_encrypted(&mut self) -> Result<u16, TLSError> {
         if self.recordcache.len() < 2 {
             // Grab another fragment
@@ -224,17 +224,23 @@ impl<'a> TLS_session<'a> {
         self.recordcache.extend(tlsplaintext.fragment.iter());
         Ok(())
     }
-    
+
     fn fill_recordcache_encrypted(&mut self) -> Result<(), TLSError> {
         // Grab another fragment
         let tlsciphertext : TLSCiphertext = try!(self.get_next_tlsciphertext());
 
-        println!("decrypt key: {:?}", &self.aead_read_key);
-        println!("decrypt nonce: {:?}", &self.aead_read_nonce);
-
         // Decrypt the data
-        self.recordcache.extend(try!(crypto::aead_decrypt(&self.aead_read_key, &self.aead_read_iv, &tlsciphertext.encrypted_record)).iter());
-        
+        let mut decrypted = try!(crypto::aead_decrypt(&self.aead_read_key, &self.aead_read_nonce, &tlsciphertext.encrypted_record));
+
+        // Remove padding
+        let end = match (0..decrypted.len()).rev().find(|&x| decrypted[x] != 0x00) {
+            Some(x) => x,
+            None => return Err(TLSError::InvalidMessage)
+        };
+
+        // Chop one off for the content type
+        self.recordcache.extend(decrypted.drain(0..(end-1)));
+
         // Increment sequence number
         self.sequence_number += 1;
         self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
@@ -970,6 +976,9 @@ impl<'a> TLS_session<'a> {
 
 			TLSState::WaitFinished => {
 
+                self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
+                self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
+
                 let finished_message = try!(self.read_finished());
 
                 // Verify the message
@@ -978,9 +987,6 @@ impl<'a> TLS_session<'a> {
                 let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
                 let ret = HandshakeMessage::Finished(finished_message).as_bytes();
                 unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
-
-                // Set sequence number back to 0 since we are changing keys
-                self.sequence_number = 0;
 
                 // Generate server_application_traffic_secret_0
                 let derivedsecret = try!(crypto::generate_derived_secret(&self.handshake_secret));
@@ -997,7 +1003,8 @@ impl<'a> TLS_session<'a> {
                 self.aead_read_key = aead_key;
                 self.aead_read_iv = aead_iv;
 
-                // Generate the nonce value
+                // Reset the sequence number and nonce value
+                self.sequence_number = 0;
                 self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
                 self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
 
@@ -1068,6 +1075,11 @@ TODO:
 */
 
     pub fn tls_receive(&mut self, dest: &mut [u8]) -> Result<usize, TLSError> {
+
+        if self.state != TLSState::Connected {
+            return Err(TLSError::InvalidState)
+        }
+
         self.read(dest)
     }
 }
