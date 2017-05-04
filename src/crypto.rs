@@ -229,9 +229,9 @@ pub fn generate_atf(derived_secret : &Vec<u8>, th_state : &crypto_hash_sha256_st
 }
 
 pub fn generate_traffic_keyring(secret : &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
-    let write_key = try!(hkdf_expand_label(secret, &Vec::from("key"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_keybytes() } as u16));
-    let write_iv = try!(hkdf_expand_label(secret, &Vec::from("iv"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_npubbytes() } as u16));
-    Ok((write_key, write_iv))
+    let key = try!(hkdf_expand_label(secret, &Vec::from("key"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_keybytes() } as u16));
+    let iv = try!(hkdf_expand_label(secret, &Vec::from("iv"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_npubbytes() } as u16));
+    Ok((key, iv))
 }
 
 pub fn generate_nonce(sequence_number : u64, aead_iv : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
@@ -253,6 +253,8 @@ pub fn aead_decrypt(read_key : &Vec<u8>, nonce : &Vec<u8>, ciphertext : &Vec<u8>
     let mut buffer : Vec<u8> = vec![0; length as usize];
     let mut buffer_len : u64 = 0;
 
+    println!("encrypted data: {:?}", &ciphertext);
+
     if unsafe { crypto_aead_chacha20poly1305_ietf_decrypt(buffer.as_mut_ptr(), &mut buffer_len, ptr::null_mut(),
             ciphertext.as_ptr(), ciphertext.len() as u64, ptr::null(), 0, nonce.as_ptr(), read_key.as_ptr()) } != 0 {
         return Err(TLSError::AEADError);
@@ -263,6 +265,9 @@ pub fn aead_decrypt(read_key : &Vec<u8>, nonce : &Vec<u8>, ciphertext : &Vec<u8>
 pub fn verify_finished(th_state : &crypto_hash_sha256_state, hs_secret : &Vec<u8>, verify_data : &Vec<u8>) -> Result<(), TLSError> {
 	let finished_key = try!(hkdf_expand_label(&hs_secret,
 		&Vec::from("finished"), &vec![], unsafe { crypto_auth_hmacsha256_bytes() } as u16));
+
+    println!("HTS: {:?}", &hs_secret);
+    println!("FK: {:?}", &finished_key);
 
 	// Copy the hash state struct
     let mut th_copy = (*th_state).clone();

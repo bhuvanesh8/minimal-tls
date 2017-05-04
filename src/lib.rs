@@ -135,7 +135,7 @@ pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) ->
         th_state : unsafe { mem::uninitialized() }, server_hts : vec![],
         client_hts : vec![], client_traffic_secret : vec![], handshake_secret : vec![],
         aead_write_key : vec![], aead_write_iv : vec![], aead_write_nonce : vec![],
-        sequence_number : 0, aead_read_key : vec![], aead_read_iv : vec![], aead_read_nonce : vec![]
+        sequence_number : 0, aead_read_key : vec![], aead_read_iv : vec![], aead_read_nonce : vec![],
     };
 
     // Initialize our transcript hash state
@@ -163,10 +163,29 @@ impl<'a> TLS_session<'a> {
         Ok(len)
     }
 
+    fn read_encrypted(&mut self, dest: &mut [u8]) -> Result<usize, TLSError> {
+        if dest.len() > self.recordcache.len() {
+            try!(self.fill_recordcache_encrypted());
+        }
+
+        let len = dest.len();
+        dest.clone_from_slice(self.recordcache.drain(0..len).collect::<Vec<u8>>().as_slice());
+        Ok(len)
+    }
+
     fn read_u8(&mut self) -> Result<u8, TLSError> {
         if self.recordcache.len() < 1 {
             // Grab another fragment
             try!(self.fill_recordcache());
+        }
+
+        Ok(self.recordcache.remove(0))
+    }
+    
+    fn read_u8_encrypted(&mut self) -> Result<u8, TLSError> {
+        if self.recordcache.len() < 1 {
+            // Grab another fragment
+            try!(self.fill_recordcache_encrypted());
         }
 
         Ok(self.recordcache.remove(0))
@@ -176,6 +195,17 @@ impl<'a> TLS_session<'a> {
         if self.recordcache.len() < 2 {
             // Grab another fragment
             try!(self.fill_recordcache());
+        }
+
+        let first = self.recordcache.remove(0);
+        let second = self.recordcache.remove(0);
+        Ok(((first as u16) << 8) | (second as u16))
+    }
+    
+    fn read_u16_encrypted(&mut self) -> Result<u16, TLSError> {
+        if self.recordcache.len() < 2 {
+            // Grab another fragment
+            try!(self.fill_recordcache_encrypted());
         }
 
         let first = self.recordcache.remove(0);
@@ -192,6 +222,15 @@ impl<'a> TLS_session<'a> {
         let tlsplaintext : TLSPlaintext = try!(self.get_next_tlsplaintext());
         self.ctypecache = tlsplaintext.ctype;
         self.recordcache.extend(tlsplaintext.fragment.iter());
+        Ok(())
+    }
+    
+    fn fill_recordcache_encrypted(&mut self) -> Result<(), TLSError> {
+        // Grab another fragment
+        let tlsciphertext : TLSCiphertext = try!(self.get_next_tlsciphertext());
+
+        // Decrypt the data
+        self.recordcache.extend(try!(crypto::aead_decrypt(&self.aead_read_key, &self.aead_read_nonce, &tlsciphertext.encrypted_record, tlsciphertext.length as u64)).iter());
         Ok(())
     }
 
@@ -211,9 +250,6 @@ impl<'a> TLS_session<'a> {
 
     fn send_tlsplaintext(&mut self, tlsplaintext : TLSPlaintext) -> Result<(), TLSError> {
     	let data : Vec<u8> = (&tlsplaintext).as_bytes();
-
-        // Increment sequence number
-        self.sequence_number += 1;
 
     	self.writer.write_all(&data).or(Err(TLSError::ReadError));
         self.writer.flush().or(Err(TLSError::ReadError))
@@ -268,6 +304,8 @@ impl<'a> TLS_session<'a> {
 
         // Increment sequence number
         self.sequence_number += 1;
+        self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
+        self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
 
         Ok(TLSCiphertext{opaque_type : contenttype, legacy_record_version : legacy_version, length : length, encrypted_record : encrypted_record})
 	}
@@ -307,9 +345,6 @@ impl<'a> TLS_session<'a> {
             FIXME: Check if we have received a TLS Alert message here. That should always
             warrant returning an error to the caller
         */
-
-        // Increment sequence number
-        self.sequence_number += 1;
 
 		Ok(TLSPlaintext{ctype: contenttype, legacy_record_version: legacy_version, length: length, fragment: data})
 	}
@@ -383,11 +418,10 @@ impl<'a> TLS_session<'a> {
 		Ok(ret)
 	}
 
-    // FIXME: This should use TLSCiphertext read messages, not TLSPlaintext read functions
     fn read_finished(&mut self) -> Result<Finished, TLSError> {
         // Fill our cache before we start reading
         self.drain_recordcache();
-        try!(self.fill_recordcache());
+        try!(self.fill_recordcache_encrypted());
 
         // Make sure we are dealing with a Handshake TLSPlaintext
         if self.ctypecache != ContentType::Handshake {
@@ -395,7 +429,7 @@ impl<'a> TLS_session<'a> {
         }
 
         // Make sure this is a Finished message
-        let msg_type : u8 = try!(self.read_u8());
+        let msg_type : u8 = try!(self.read_u8_encrypted());
         if msg_type != 20 {
             return Err(TLSError::InvalidMessage)
         }
@@ -403,11 +437,11 @@ impl<'a> TLS_session<'a> {
         // Grab our overall message length here
         // FIXME: Use this to prebuffer the whole Finished message
         let mut len : Vec<u8> = vec![0; 3];
-        try!(self.read(len.as_mut_slice()));
+        try!(self.read_encrypted(len.as_mut_slice()));
 
         // We know the length of the body will be Hash.length, so just read it in directly
         let mut verify_data : Vec<u8> = vec![0; crypto::get_hmac_length() ];
-        try!(self.read(verify_data.as_mut_slice()));
+        try!(self.read_encrypted(verify_data.as_mut_slice()));
 
         Ok(Finished { verify_data : verify_data })
     }
@@ -813,9 +847,6 @@ impl<'a> TLS_session<'a> {
                 // Queue ServerHello to be sent
                 messagequeue.push(hs_message);
 
-                // Set sequence number back to 0 since we are changing keys
-                self.sequence_number = 0;
-
                 // Generate derived secret (without PSK)
                 let earlysecret = try!(crypto::generate_early_secret());
 
@@ -905,13 +936,6 @@ impl<'a> TLS_session<'a> {
 
 			TLSState::WaitFlight2 => {
 
-                // Set sequence number back to 0 since we are changing keys
-                self.sequence_number = 1;
-
-                // Update the nonce value
-                self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
-                self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
-
                 // Send Finished message
                 let finished_message = HandshakeMessage::Finished(Finished{
                     verify_data : try!(crypto::generate_finished(&self.server_hts, &self.th_state))
@@ -946,10 +970,14 @@ impl<'a> TLS_session<'a> {
                 let finished_message = try!(self.read_finished());
 
                 // Verify the message
-                if let Err(x) = crypto::verify_finished(&self.th_state, &self.client_hts, &finished_message.verify_data) {
-                    self.state = TLSState::Error;
-                    return Err(x)
-                };
+                try!(crypto::verify_finished(&self.th_state, &self.client_hts, &finished_message.verify_data));
+
+                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+                let ret = HandshakeMessage::Finished(finished_message).as_bytes();
+                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+
+                println!("made it here!");
+                assert!(false);
 
                 // Set sequence number back to 0 since we are changing keys
                 self.sequence_number = 0;
@@ -1050,7 +1078,7 @@ TODO:
             let tlsciphertext : TLSCiphertext = try!(self.get_next_tlsciphertext());
 
             // Decrypt the data
-            self.recordcache.extend(try!(crypto::aead_decrypt(&self.aead_read_key, &self.aead_write_nonce, &tlsciphertext.encrypted_record, tlsciphertext.length as u64)).iter());
+            self.recordcache.extend(try!(crypto::aead_decrypt(&self.aead_read_key, &self.aead_read_nonce, &tlsciphertext.encrypted_record, tlsciphertext.length as u64)).iter());
         }
 
         let len = dest.len();
