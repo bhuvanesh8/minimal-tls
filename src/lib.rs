@@ -984,10 +984,6 @@ impl<'a> TLS_session<'a> {
                 // Verify the message
                 try!(crypto::verify_finished(&self.th_state, &self.client_hts, &finished_message.verify_data));
 
-                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let ret = HandshakeMessage::Finished(finished_message).as_bytes();
-                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
-
                 // Generate application traffic secret
                 let derivedsecret = try!(crypto::generate_derived_secret(&self.handshake_secret));
                 let (server_traffic_secret, client_traffic_secret) = try!(crypto::generate_atf(&derivedsecret, &self.th_state));
@@ -1085,6 +1081,6 @@ TODO:
             return Err(TLSError::InvalidState)
         }
 
-        self.read(dest)
+        self.read_encrypted(dest)
     }
 }
