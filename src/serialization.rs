@@ -1,7 +1,7 @@
 extern crate byteorder;
 use self::byteorder::{NetworkEndian, WriteBytesExt};
 
-use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, ASN1Cert, TLSInnerPlaintext, TLSCiphertext, KeyShare, HandshakeBytes};
+use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, ASN1Cert, TLSInnerPlaintext, TLSCiphertext, KeyShare, HandshakeBytes, Alert};
 
 pub trait TLSToBytes {
 	fn as_bytes(&self) -> Vec<u8>;
@@ -63,6 +63,15 @@ pub fn u8_bytevec_as_bytes(data : &Vec<u8>) -> Vec<u8> {
     ret.push(data.len() as u8);
     ret.extend(data.iter());
 	ret
+}
+
+impl TLSToBytes for Alert {
+	fn as_bytes(&self) -> Vec<u8> {
+        let mut ret : Vec<u8> = vec![];
+        ret.push(self.level as u8);
+        ret.push(self.description as u8);
+        ret
+    }
 }
 
 impl TLSToBytes for TLSPlaintext {

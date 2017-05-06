@@ -26,6 +26,7 @@ mod structures;
 mod serialization;
 mod extensions;
 mod crypto;
+mod alert;
 
 use std::mem;
 use std::io::Read;
@@ -43,7 +44,7 @@ use structures::{Random, ClientHello, CipherSuite, Extension, ContentType,
                     EncryptedExtensions, CertificateEntry, Certificate,
                     CertificateVerify, SignatureScheme, Finished,
                     TLSCiphertext, TLSInnerPlaintext, HandshakeType,
-                    HandshakeBytes};
+                    HandshakeBytes, Alert, AlertLevel, AlertDescription};
 
 extern crate openssl;
 use self::openssl::ec::EcKey;
@@ -164,6 +165,12 @@ impl<'a> TLS_session<'a> {
 
         Ok(len)
     }
+    
+    fn write(&mut self, src: &[u8], ctype: ContentType) -> Result<usize, TLSError> {
+        let plaintext = try!(self.create_tlsplaintext(ctype, src.to_vec()));
+        try!(self.send_tlsplaintext(plaintext));
+        Ok(src.len())
+    }
 
     fn write_encrypted(&mut self, src: &[u8]) -> Result<usize, TLSError> {
         let ciphertext = try!(self.create_tlsciphertext(ContentType::ApplicationData, src.to_vec()));
@@ -221,6 +228,90 @@ impl<'a> TLS_session<'a> {
         Ok(((first as u16) << 8) | (second as u16))
     }
 
+    fn parse_alertdesc(&mut self, desc: u8) -> AlertDescription {
+        match desc {
+            0 => AlertDescription::CloseNotify,
+            10 => AlertDescription::UnexpectedMessage,
+            20 => AlertDescription::BadRecordMac,
+            21 => AlertDescription::DecryptionFailedReserved,
+            22 => AlertDescription::RecordOverflow,
+            30 => AlertDescription::DecompressionFailureReserved,
+            40 => AlertDescription::HandshakeFailure,
+            41 => AlertDescription::NoCertificateReserved,
+            42 => AlertDescription::BadCertificate,
+            43 => AlertDescription::UnsupportedCertificate,
+            44 => AlertDescription::CertificateRevoked,
+            45 => AlertDescription::CertificateExpired,
+            46 => AlertDescription::CertificateUnknown,
+            47 => AlertDescription::IllegalParameter,
+            48 => AlertDescription::UnknownCa,
+            49 => AlertDescription::AccessDenied,
+            50 => AlertDescription::DecodeError,
+            51 => AlertDescription::DecryptError,
+            60 => AlertDescription::ExportRestrictionReserved,
+            70 => AlertDescription::ProtocolVersion,
+            71 => AlertDescription::InsufficientSecurity,
+            80 => AlertDescription::InternalError,
+            86 => AlertDescription::InappropriateFallback,
+            90 => AlertDescription::UserCanceled,
+            100 => AlertDescription::NoRenegotiationReserved,
+            109 => AlertDescription::MissingExtension,
+            110 => AlertDescription::UnsupportedExtension,
+            111 => AlertDescription::CertificateUnobtainable,
+            112 => AlertDescription::UnrecognizedName,
+            113 => AlertDescription::BadCertificateStatusResponse,
+            114 => AlertDescription::BadCertificateHashValue,
+            115 => AlertDescription::UnknownPskIdentity,
+            116 => AlertDescription::CertificateRequired,
+            _ => {
+                // According to the spec, unknown alerts are to be treated as fatal
+                AlertDescription::IllegalParameter
+            }
+        }
+    }
+
+    fn send_close_notify(&mut self) {
+        let cn = Alert { level : AlertLevel::Fatal, description : AlertDescription::CloseNotify };
+        let data = cn.as_bytes();
+        match self.state {
+            TLSState::Start => self.write(&data, ContentType::Alert),
+            TLSState::RecievedClientHello => self.write(&data, ContentType::Alert),
+            TLSState::Negotiated => self.write_encrypted(&data),
+            TLSState::WaitEndOfEarlyData => self.write_encrypted(&data),
+            TLSState::WaitFlight2 => self.write_encrypted(&data),
+            TLSState::WaitCert => self.write_encrypted(&data),
+            TLSState::WaitCertificateVerify => self.write_encrypted(&data),
+            TLSState::WaitFinished => self.write_encrypted(&data),
+            TLSState::Connected => self.write_encrypted(&data),
+            TLSState::Error => Ok(0),
+            TLSState::Closed => Ok(0)
+        };
+    }
+
+    fn close_connection(&mut self) {
+        self.state = TLSState::Closed;
+
+        // FIXME: Secrets need to be removed from memory
+    }
+
+    fn handle_alert(&mut self, desc: AlertDescription) -> TLSError {
+        // If we have a Closure Alert, we have to notify the client
+        match desc {
+            AlertDescription::CloseNotify => {
+               self.send_close_notify(); 
+            },
+            AlertDescription::UserCanceled => {
+               self.send_close_notify(); 
+            },
+            _ => {}
+        }
+
+        // Close the connection
+        self.close_connection();
+
+        return TLSError::ConnectionClosed
+    }
+
     fn drain_recordcache(&mut self) {
         self.recordcache.clear()
     }
@@ -229,6 +320,14 @@ impl<'a> TLS_session<'a> {
         // Grab another fragment
         let tlsplaintext : TLSPlaintext = try!(self.get_next_tlsplaintext());
         self.ctypecache = tlsplaintext.ctype;
+
+        // Check for an Alert message
+        if self.ctypecache == ContentType::Alert {
+            // TLS 1.3 mandates we ignore the AlertLevel
+            let alert : AlertDescription = self.parse_alertdesc(tlsplaintext.fragment[1]);
+            return Err(self.handle_alert(alert));
+        }
+
         self.recordcache.extend(tlsplaintext.fragment.iter());
         Ok(())
     }
@@ -248,16 +347,24 @@ impl<'a> TLS_session<'a> {
 
         // Set our content type
         self.ctypecache = match decrypted[end] {
-            0  => ContentType::InvalidReserved,
+            0  => return Err(TLSError::InvalidMessage),
             20 => ContentType::ChangeCipherSpecReserved,
             21 => ContentType::Alert,
             22 => ContentType::Handshake,
             23 => ContentType::ApplicationData,
             _  => return Err(TLSError::InvalidMessage)
         };
-
+        
         // Chop one off for the content type
         self.recordcache.extend(decrypted.drain(0..(end)));
+
+        // Check for an Alert message
+        if self.ctypecache == ContentType::Alert {
+            // TLS 1.3 mandates we ignore the AlertLevel
+            decrypted.remove(0);
+            let alert : AlertDescription = self.parse_alertdesc(decrypted.remove(0));
+            return Err(self.handle_alert(alert));
+        }
 
         // Increment sequence number
         self.read_sequence_number += 1;
@@ -325,11 +432,6 @@ impl<'a> TLS_session<'a> {
 		let mut encrypted_record = vec![0; length as usize];
 		try!(self.reader.read_exact(encrypted_record.as_mut_slice()).or(Err(TLSError::ReadError)));
 
-        /*
-            FIXME: Check if we have received a TLS Alert message here. That should always
-            warrant returning an error to the caller
-        */
-
         Ok(TLSCiphertext{opaque_type : contenttype, legacy_record_version : legacy_version, length : length, encrypted_record : encrypted_record})
 	}
 
@@ -363,11 +465,6 @@ impl<'a> TLS_session<'a> {
 		// Read the remaining data from the buffer
 		let mut data = vec![0; length as usize];
 		try!(self.reader.read_exact(data.as_mut_slice()).or(Err(TLSError::ReadError)));
-
-        /*
-            FIXME: Check if we have received a TLS Alert message here. That should always
-            warrant returning an error to the caller
-        */
 
 		Ok(TLSPlaintext{ctype: contenttype, legacy_record_version: legacy_version, length: length, fragment: data})
 	}
@@ -1055,8 +1152,15 @@ impl<'a> TLS_session<'a> {
 		*/
         let mut hs_message = HandshakeMessage::InvalidMessage;
 		loop {
+            // FIXME: If we receive an error, send the appropriate alert
 			match self.transition(hs_message, config) {
-				Err(e) => return Err(e),
+				Err(e) => {
+
+                    // Send a TLS Alert
+                    self.send_alert(alert::error_to_alert(e));
+
+                    return Err(e)
+                },
 				Ok(x) => {
 					if self.state == TLSState::Connected {
 						break
@@ -1073,13 +1177,7 @@ impl<'a> TLS_session<'a> {
 
 		Ok(())
 	}
-
-/*
-TODO:
-    Finish recieving alert message in get_next_tlsplaintext and get_next_tlsciphertext
-    Finish tls_close
-*/
-
+    
     pub fn tls_receive(&mut self, dest: &mut [u8]) -> Result<usize, TLSError> {
 
         if self.state != TLSState::Connected {
@@ -1096,5 +1194,10 @@ TODO:
         }
 
         self.write_encrypted(src)
+    }
+
+    pub fn tls_close(&mut self) {
+        self.send_close_notify();
+        self.close_connection();
     }
 }

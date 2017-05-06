@@ -51,7 +51,8 @@ pub enum TLSError {
     InvalidKeyShare,
     InvalidKeyExchange,
     SignatureError,
-    AEADError
+    AEADError,
+    ConnectionClosed
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -93,11 +94,13 @@ pub struct TLSCiphertext {
     pub encrypted_record : Vec<u8> // max length is 'length'
 }
 
+#[derive(PartialEq, Copy, Clone)]
 pub enum AlertLevel {
     Warning = 1,
     Fatal = 2,
 }
 
+#[derive(PartialEq, Copy, Clone)]
 pub enum AlertDescription {
     CloseNotify = 0,
     UnexpectedMessage = 10,
@@ -127,7 +130,7 @@ pub enum AlertDescription {
     MissingExtension = 109,
     UnsupportedExtension = 110,
     CertificateUnobtainable = 111,
-    UnrecognnizedName = 112,
+    UnrecognizedName = 112,
     BadCertificateStatusResponse = 113,
     BadCertificateHashValue = 114,
     UnknownPskIdentity = 115,

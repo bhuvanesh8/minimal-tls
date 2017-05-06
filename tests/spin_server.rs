@@ -30,6 +30,7 @@ fn handle_client(stream: TcpStream, tlsconfig : &TLS_config){
 
     connection.tls_send(&buf).unwrap();
     println!("closing connection");
+    connection.tls_close();
 }
 
 
