@@ -111,7 +111,8 @@ pub struct TLS_session<'a> {
     aead_read_nonce : Vec<u8>,
 
     // Sequence number
-    sequence_number : u64,
+    read_sequence_number : u64,
+    write_sequence_number : u64,
 
 	// Cache any remaining bytes in a TLS record
     ctypecache : ContentType,
@@ -135,7 +136,8 @@ pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) ->
         th_state : unsafe { mem::uninitialized() }, server_hts : vec![],
         client_hts : vec![], client_traffic_secret : vec![], handshake_secret : vec![],
         aead_write_key : vec![], aead_write_iv : vec![], aead_write_nonce : vec![],
-        sequence_number : 0, aead_read_key : vec![], aead_read_iv : vec![], aead_read_nonce : vec![],
+        read_sequence_number : 0, aead_read_key : vec![], aead_read_iv : vec![], aead_read_nonce : vec![],
+        write_sequence_number : 0
     };
 
     // Initialize our transcript hash state
@@ -258,9 +260,8 @@ impl<'a> TLS_session<'a> {
         self.recordcache.extend(decrypted.drain(0..(end)));
 
         // Increment sequence number
-        self.sequence_number += 1;
-        self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
-        self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
+        self.read_sequence_number += 1;
+        self.aead_read_nonce = try!(crypto::generate_nonce(self.read_sequence_number, &self.aead_read_iv));
 
         Ok(())
     }
@@ -289,11 +290,8 @@ impl<'a> TLS_session<'a> {
     	let data : Vec<u8> = (&tlsciphertext).as_bytes();
 
         // Increment sequence number
-        self.sequence_number += 1;
-
-        // Update the nonce value
-        self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
-        self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
+        self.write_sequence_number += 1;
+        self.aead_write_nonce = try!(crypto::generate_nonce(self.write_sequence_number, &self.aead_write_iv));
 
     	self.writer.write_all(data.as_slice()).or(Err(TLSError::ReadError));
         self.writer.flush().or(Err(TLSError::ReadError))
@@ -894,8 +892,8 @@ impl<'a> TLS_session<'a> {
                 self.aead_read_iv = aead_iv;
 
                 // Generate the initial nonce value
-                self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
-                self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
+                self.aead_write_nonce = try!(crypto::generate_nonce(self.write_sequence_number, &self.aead_write_iv));
+                self.aead_read_nonce = try!(crypto::generate_nonce(self.read_sequence_number, &self.aead_read_iv));
 
                 // Send EncryptedExtensions
                 let encrypted_extensions = HandshakeMessage::EncryptedExtensions(EncryptedExtensions{extensions: vec![]});
@@ -981,9 +979,10 @@ impl<'a> TLS_session<'a> {
 			TLSState::WaitFinished => {
 
                 // Reset the sequence number and nonce value
-                self.sequence_number = 0;
-                self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
-                self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
+                self.read_sequence_number = 0;
+                self.write_sequence_number = 0;
+                self.aead_write_nonce = try!(crypto::generate_nonce(self.write_sequence_number, &self.aead_write_iv));
+                self.aead_read_nonce = try!(crypto::generate_nonce(self.read_sequence_number, &self.aead_read_iv));
 
                 let finished_message = try!(self.read_finished());
 
@@ -1006,9 +1005,10 @@ impl<'a> TLS_session<'a> {
                 self.aead_read_iv = aead_iv;
 
                 // Reset the sequence number and nonce value
-                self.sequence_number = 0;
-                self.aead_write_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_write_iv));
-                self.aead_read_nonce = try!(crypto::generate_nonce(self.sequence_number, &self.aead_read_iv));
+                self.read_sequence_number = 0;
+                self.write_sequence_number = 0;
+                self.aead_write_nonce = try!(crypto::generate_nonce(self.write_sequence_number, &self.aead_write_iv));
+                self.aead_read_nonce = try!(crypto::generate_nonce(self.read_sequence_number, &self.aead_read_iv));
 
                 // Record cache should be empty because we are changing keys
                 if self.recordcache.len() != 0 {
@@ -1077,7 +1077,6 @@ impl<'a> TLS_session<'a> {
 /*
 TODO:
     Finish recieving alert message in get_next_tlsplaintext and get_next_tlsciphertext
-    Finish tls_send
     Finish tls_close
 */
 
