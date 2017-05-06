@@ -163,6 +163,12 @@ impl<'a> TLS_session<'a> {
         Ok(len)
     }
 
+    fn write_encrypted(&mut self, src: &[u8]) -> Result<usize, TLSError> {
+        let ciphertext = try!(self.create_tlsciphertext(ContentType::ApplicationData, src.to_vec()));
+        try!(self.send_tlsciphertext(ciphertext));
+        Ok(src.len())
+    }
+
     fn read_encrypted(&mut self, dest: &mut [u8]) -> Result<usize, TLSError> {
         if dest.len() > self.recordcache.len() {
             try!(self.fill_recordcache_encrypted());
@@ -1082,5 +1088,14 @@ TODO:
         }
 
         self.read_encrypted(dest)
+    }
+    
+    pub fn tls_send(&mut self, src: &[u8]) -> Result<usize, TLSError> {
+
+        if self.state != TLSState::Connected {
+            return Err(TLSError::InvalidState)
+        }
+
+        self.write_encrypted(src)
     }
 }

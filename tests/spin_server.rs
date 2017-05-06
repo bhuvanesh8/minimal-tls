@@ -20,11 +20,11 @@ fn handle_client(stream: TcpStream, tlsconfig : &TLS_config){
         Err(e) => println!("tls_start() exited with {:?}", e)
     }
 
-    for _ in 0..3 {
-        let mut buf = vec![0; 20];
-        connection.tls_receive(&mut buf).unwrap();
-        println!("data: {:?}", str::from_utf8(buf.as_slice()).unwrap());
-    }
+    let mut buf = vec![0; 20];
+    connection.tls_receive(&mut buf).unwrap();
+    println!("data: {:?}", str::from_utf8(buf.as_slice()).unwrap());
+
+    connection.tls_send(&buf).unwrap();
     println!("closing connection");
 }
 
