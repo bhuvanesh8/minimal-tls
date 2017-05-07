@@ -274,7 +274,6 @@ pub fn verify_finished(th_state : &crypto_hash_sha256_state, hs_secret : &Vec<u8
 	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_hash_sha256_bytes() }];
 	unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
 
-	let mut result : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];
 	if unsafe { crypto_auth_hmacsha256_verify(verify_data.as_ptr(), buffer.as_ptr(), buffer.len() as u64, finished_key.as_ptr()) } != 0 {
 		Err(TLSError::AEADError)
 	} else {

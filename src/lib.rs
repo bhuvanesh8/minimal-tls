@@ -13,12 +13,11 @@
 #![warn(missing_docs,
         missing_debug_implementations,
         missing_copy_implementations,
-        trivial_casts,
         trivial_numeric_casts,
+        trivial_casts,
         unstable_features,
         unused_import_braces,
         unused_qualifications)]
-
 
 extern crate pem;
 
@@ -1109,7 +1108,6 @@ impl<'a> TLS_session<'a> {
 		*/
         let mut hs_message = HandshakeMessage::InvalidMessage;
 		loop {
-            // FIXME: If we receive an error, send the appropriate alert
 			match self.transition(hs_message, config) {
 				Err(e) => {
 

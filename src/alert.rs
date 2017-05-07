@@ -45,38 +45,38 @@ pub fn parse_alertdesc(desc: u8) -> AlertDescription {
 // Not all errors require sending alerts
 pub fn error_to_alert(err: TLSError) -> Option<AlertDescription> {
     match err {
-        InvalidCertificatePath => None,
-        InvalidPrivateKeyPath => None,
-        InvalidCertificateFile => None,
-        InvalidPrivateKeyFile => None,
-        CryptoInitError => None,
-        InvalidState => None,
-        InvalidMessage => Some(AlertDescription::UnexpectedMessage),
-        ReadError => {
+        TLSError::InvalidCertificatePath => None,
+        TLSError::InvalidPrivateKeyPath => None,
+        TLSError::InvalidCertificateFile => None,
+        TLSError::InvalidPrivateKeyFile => None,
+        TLSError::CryptoInitError => None,
+        TLSError::InvalidState => None,
+        TLSError::InvalidMessage => Some(AlertDescription::UnexpectedMessage),
+        TLSError::ReadError => {
             // We can try to send an alert here
             Some(AlertDescription::InternalError)
         },
-        WriteError => {
+        TLSError::WriteError => {
             // If we can't write, we can't send an alert
             None
         },
-        InvalidHandshakeError => Some(AlertDescription::DecodeError),
-        InvalidMessageLength => Some(AlertDescription::IllegalParameter),
-        InvalidMessagePadding => Some(AlertDescription::DecodeError),
-        InvalidHandshakeVersionError => Some(AlertDescription::ProtocolVersion),
-        InvalidCiphertextHeader => Some(AlertDescription::UnexpectedMessage),
-        InvalidHandshakeCompression => Some(AlertDescription::IllegalParameter),
-        InvalidCipherSuite => Some(AlertDescription::DecodeError),
-        InvalidTHMessage => Some(AlertDescription::UnexpectedMessage),
-        UnsupportedCipherSuite => Some(AlertDescription::HandshakeFailure),
-        UnsupportedNamedGroup => Some(AlertDescription::IllegalParameter),
-        DuplicateExtensions => Some(AlertDescription::IllegalParameter),
-        MissingExtension => Some(AlertDescription::MissingExtension),
-        InvalidTLSSupportedVersion => Some(AlertDescription::ProtocolVersion),
-        InvalidKeyShare => Some(AlertDescription::HandshakeFailure),
-        InvalidKeyExchange => Some(AlertDescription::DecryptError),
-        SignatureError => Some(AlertDescription::BadRecordMac),
-        AEADError => Some(AlertDescription::BadRecordMac),
-        ConnectionClosed => None
+        TLSError::InvalidHandshakeError => Some(AlertDescription::DecodeError),
+        TLSError::InvalidMessageLength => Some(AlertDescription::IllegalParameter),
+        TLSError::InvalidMessagePadding => Some(AlertDescription::DecodeError),
+        TLSError::InvalidHandshakeVersionError => Some(AlertDescription::ProtocolVersion),
+        TLSError::InvalidCiphertextHeader => Some(AlertDescription::UnexpectedMessage),
+        TLSError::InvalidHandshakeCompression => Some(AlertDescription::IllegalParameter),
+        TLSError::InvalidCipherSuite => Some(AlertDescription::DecodeError),
+        TLSError::InvalidTHMessage => Some(AlertDescription::UnexpectedMessage),
+        TLSError::UnsupportedCipherSuite => Some(AlertDescription::HandshakeFailure),
+        TLSError::UnsupportedNamedGroup => Some(AlertDescription::IllegalParameter),
+        TLSError::DuplicateExtensions => Some(AlertDescription::IllegalParameter),
+        TLSError::MissingExtension => Some(AlertDescription::MissingExtension),
+        TLSError::InvalidTLSSupportedVersion => Some(AlertDescription::ProtocolVersion),
+        TLSError::InvalidKeyShare => Some(AlertDescription::HandshakeFailure),
+        TLSError::InvalidKeyExchange => Some(AlertDescription::DecryptError),
+        TLSError::SignatureError => Some(AlertDescription::BadRecordMac),
+        TLSError::AEADError => Some(AlertDescription::BadRecordMac),
+        TLSError::ConnectionClosed => None
     }
 }
