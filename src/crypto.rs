@@ -67,8 +67,8 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 
 	let hashlen = unsafe { crypto_auth_hmacsha256_bytes() };
 
-	let mut n : usize = (length / hashlen);
-	if (length % hashlen > 0) {
+	let mut n : usize = length / hashlen;
+	if length % hashlen > 0 {
 		n = n + 1;
 	}
 

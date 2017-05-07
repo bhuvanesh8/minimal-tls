@@ -15,7 +15,7 @@ impl Extension {
 		let length = ((*first as u16) << 8) | (*second as u16);
 
         if length == 0 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
 		let mut ret : Vec<NamedGroup> = Vec::new();
@@ -51,7 +51,7 @@ impl Extension {
 
 		let length = ((*first as u16) << 8) | (*second as u16);
         if length == 0 || length as u32 > (2 as u32).pow(16) - 2{
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
 		let mut ret : Vec<SignatureScheme> = Vec::new();
@@ -119,7 +119,7 @@ impl Extension {
 
 		let length = ((*first as u16) << 8) | (*second as u16);
         if length < 1 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
         let ke_data : Vec<u8> = iter.take(length as usize).map(|&x| x).collect();
@@ -138,7 +138,7 @@ impl Extension {
 
 		let length = ((*first as u16) << 8) | (*second as u16);
         if length < 1 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
         let mut kse_list : Vec<KeyShareEntry> = vec![];
@@ -162,7 +162,7 @@ impl Extension {
 
 		let length = ((*first as u16) << 8) | (*second as u16);
         if length < 7 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
         let mut ret : Vec<PskIdentity> = vec![];
@@ -173,7 +173,7 @@ impl Extension {
 
 			let length = ((*first as u16) << 8) | (*second as u16);
 			if length < 1 {
-				return Err(TLSError::InvalidHandshakeError)
+				return Err(TLSError::InvalidMessageLength)
 			}
 
 			let identity_data : Vec<u8> = iter.take(length as usize).map(|&x| x).collect();
@@ -200,7 +200,7 @@ impl Extension {
 
 		let length = ((*first as u16) << 8) | (*second as u16);
         if length < 33 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
         let mut ret : Vec<PskBinderEntry> = vec![];
@@ -209,7 +209,7 @@ impl Extension {
         	let first = *(iter.next().unwrap());
 
 			if first < 32 {
-				return Err(TLSError::InvalidHandshakeError)
+				return Err(TLSError::InvalidMessageLength)
 			}
 
 			let binder_entry : PskBinderEntry = iter.take(first as usize).map(|&x| x).collect();
@@ -251,7 +251,7 @@ impl Extension {
 
 		let length = *first as u16;
         if length < 2 || length > 254 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
 		let mut ret : Vec<ProtocolVersion> = Vec::new();
@@ -275,7 +275,7 @@ impl Extension {
 
 		let length = ((*first as u16) << 8) | (*second as u16);
         if length < 1 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 		let ret : Vec<u8> = iter.take(length as usize).map(|&x| x).collect();
         Ok(Extension::Cookie(Cookie{cookie : ret}))
@@ -287,7 +287,7 @@ impl Extension {
 		let length = *first as u8;
 
         if length < 1 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
         let mut ret : Vec<PskKeyExchangeMode> = vec![];

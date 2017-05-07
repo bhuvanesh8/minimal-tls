@@ -128,7 +128,7 @@ pub fn tls_init<'a, R : Read, W : Write>(read : &'a mut R, write : &'a mut W) ->
     // Call sodium_init here. According to the documentation, we can call it multiple times w/o
     // causing any errors
     if unsafe { crypto::sodium_init() } == -1 {
-        return Err(TLSError::CryptoError);
+        return Err(TLSError::CryptoInitError);
     }
 
     let mut ret = TLS_session{reader : read, writer : write, state : TLSState::Start,
@@ -165,7 +165,7 @@ impl<'a> TLS_session<'a> {
 
         Ok(len)
     }
-    
+
     fn write(&mut self, src: &[u8], ctype: ContentType) -> Result<usize, TLSError> {
         let plaintext = try!(self.create_tlsplaintext(ctype, src.to_vec()));
         try!(self.send_tlsplaintext(plaintext));
@@ -228,50 +228,8 @@ impl<'a> TLS_session<'a> {
         Ok(((first as u16) << 8) | (second as u16))
     }
 
-    fn parse_alertdesc(&mut self, desc: u8) -> AlertDescription {
-        match desc {
-            0 => AlertDescription::CloseNotify,
-            10 => AlertDescription::UnexpectedMessage,
-            20 => AlertDescription::BadRecordMac,
-            21 => AlertDescription::DecryptionFailedReserved,
-            22 => AlertDescription::RecordOverflow,
-            30 => AlertDescription::DecompressionFailureReserved,
-            40 => AlertDescription::HandshakeFailure,
-            41 => AlertDescription::NoCertificateReserved,
-            42 => AlertDescription::BadCertificate,
-            43 => AlertDescription::UnsupportedCertificate,
-            44 => AlertDescription::CertificateRevoked,
-            45 => AlertDescription::CertificateExpired,
-            46 => AlertDescription::CertificateUnknown,
-            47 => AlertDescription::IllegalParameter,
-            48 => AlertDescription::UnknownCa,
-            49 => AlertDescription::AccessDenied,
-            50 => AlertDescription::DecodeError,
-            51 => AlertDescription::DecryptError,
-            60 => AlertDescription::ExportRestrictionReserved,
-            70 => AlertDescription::ProtocolVersion,
-            71 => AlertDescription::InsufficientSecurity,
-            80 => AlertDescription::InternalError,
-            86 => AlertDescription::InappropriateFallback,
-            90 => AlertDescription::UserCanceled,
-            100 => AlertDescription::NoRenegotiationReserved,
-            109 => AlertDescription::MissingExtension,
-            110 => AlertDescription::UnsupportedExtension,
-            111 => AlertDescription::CertificateUnobtainable,
-            112 => AlertDescription::UnrecognizedName,
-            113 => AlertDescription::BadCertificateStatusResponse,
-            114 => AlertDescription::BadCertificateHashValue,
-            115 => AlertDescription::UnknownPskIdentity,
-            116 => AlertDescription::CertificateRequired,
-            _ => {
-                // According to the spec, unknown alerts are to be treated as fatal
-                AlertDescription::IllegalParameter
-            }
-        }
-    }
-
-    fn send_close_notify(&mut self) {
-        let cn = Alert { level : AlertLevel::Fatal, description : AlertDescription::CloseNotify };
+    fn send_alert(&mut self, alertdesc : AlertDescription) {
+        let cn = Alert { level : AlertLevel::Fatal, description : alertdesc };
         let data = cn.as_bytes();
         match self.state {
             TLSState::Start => self.write(&data, ContentType::Alert),
@@ -298,10 +256,10 @@ impl<'a> TLS_session<'a> {
         // If we have a Closure Alert, we have to notify the client
         match desc {
             AlertDescription::CloseNotify => {
-               self.send_close_notify(); 
+               self.send_alert(AlertDescription::CloseNotify);
             },
             AlertDescription::UserCanceled => {
-               self.send_close_notify(); 
+               self.send_alert(AlertDescription::CloseNotify);
             },
             _ => {}
         }
@@ -324,7 +282,7 @@ impl<'a> TLS_session<'a> {
         // Check for an Alert message
         if self.ctypecache == ContentType::Alert {
             // TLS 1.3 mandates we ignore the AlertLevel
-            let alert : AlertDescription = self.parse_alertdesc(tlsplaintext.fragment[1]);
+            let alert : AlertDescription = alert::parse_alertdesc(tlsplaintext.fragment[1]);
             return Err(self.handle_alert(alert));
         }
 
@@ -342,19 +300,18 @@ impl<'a> TLS_session<'a> {
         // Remove padding
         let end = match (0..decrypted.len()).rev().find(|&x| decrypted[x] != 0x00) {
             Some(x) => x,
-            None => return Err(TLSError::InvalidMessage)
+            None => return Err(TLSError::InvalidMessagePadding)
         };
 
         // Set our content type
         self.ctypecache = match decrypted[end] {
-            0  => return Err(TLSError::InvalidMessage),
             20 => ContentType::ChangeCipherSpecReserved,
             21 => ContentType::Alert,
             22 => ContentType::Handshake,
             23 => ContentType::ApplicationData,
             _  => return Err(TLSError::InvalidMessage)
         };
-        
+
         // Chop one off for the content type
         self.recordcache.extend(decrypted.drain(0..(end)));
 
@@ -362,7 +319,7 @@ impl<'a> TLS_session<'a> {
         if self.ctypecache == ContentType::Alert {
             // TLS 1.3 mandates we ignore the AlertLevel
             decrypted.remove(0);
-            let alert : AlertDescription = self.parse_alertdesc(decrypted.remove(0));
+            let alert : AlertDescription = alert::parse_alertdesc(decrypted.remove(0));
             return Err(self.handle_alert(alert));
         }
 
@@ -425,7 +382,7 @@ impl<'a> TLS_session<'a> {
 		// Make sure length is less than 2^14-1
 		let length = bytes_to_u16(&buffer[3..5]);
 		if length >= 16384 {
-			return Err(TLSError::InvalidHandshakeError)
+			return Err(TLSError::InvalidMessageLength)
 		}
 
 		// Read the remaining data from the buffer
@@ -447,19 +404,19 @@ impl<'a> TLS_session<'a> {
 			21 => ContentType::Alert,
 			22 => ContentType::Handshake,
 			23 => ContentType::ApplicationData,
-			_  => return Err(TLSError::InvalidHandshakeError)
+			_  => return Err(TLSError::InvalidMessage)
 		};
 
 		// Match legacy protocol version
 		let legacy_version = bytes_to_u16(&buffer[1..3]);
 		if legacy_version != 0x0301 {
-			return Err(TLSError::InvalidHandshakeError)
+			return Err(TLSError::InvalidHandshakeVersionError)
 		}
 
 		// Make sure length is less than 2^14-1
 		let length = bytes_to_u16(&buffer[3..5]);
 		if length >= 16384 {
-			return Err(TLSError::InvalidHandshakeError)
+			return Err(TLSError::InvalidMessageLength)
 		}
 
 		// Read the remaining data from the buffer
@@ -505,7 +462,7 @@ impl<'a> TLS_session<'a> {
 
             // FIXME: Use this
             let a = iter.next().unwrap(); let b = iter.next().unwrap();
-            let extension_length = ((*a as u16) | (*b as u16));
+            let extension_length = (*a as u16) | (*b as u16);
 
             let result : Option<Extension> = match extension_type {
     			10 => Some(try!(Extension::parse_supported_groups(&mut iter, self))),
@@ -601,7 +558,7 @@ impl<'a> TLS_session<'a> {
         // Legacy session ID can be 0-32 bytes
         let lsi_length : usize = try!(self.read_u8()) as usize;
         if lsi_length > 32 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
         let mut legacy_session_id = vec![0; lsi_length];
@@ -613,7 +570,7 @@ impl<'a> TLS_session<'a> {
         let cslist_length : usize = try!(self.read_u16()) as usize;
         let max_cslist_length: usize = ((2 as u32).pow(16) - 2) as usize;
         if cslist_length < 2 || cslist_length > max_cslist_length || cslist_length % 2 != 0 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
         // Process the list of ciphersuites -- in particular, minimal-TLS doesn't support the full list
@@ -623,7 +580,7 @@ impl<'a> TLS_session<'a> {
         // Read in legacy compression methods (should just be null compression)
         let comp_length = try!(self.read_u8()) as usize;
         if comp_length != 1 {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
         // 0x00 is null compression
@@ -635,7 +592,7 @@ impl<'a> TLS_session<'a> {
         let ext_length = try!(self.read_u16()) as usize;
         let max_ext_length:usize  = ( (2 as u32).pow(16) -1 ) as usize;
         if ext_length < 8 || ext_length > max_ext_length {
-            return Err(TLSError::InvalidHandshakeError)
+            return Err(TLSError::InvalidMessageLength)
         }
 
         let mut extensions : Vec<u8> = vec![0; ext_length];
@@ -785,7 +742,7 @@ impl<'a> TLS_session<'a> {
 	fn negotiate_serverhello(&mut self, clienthello: &ClientHello) -> Result<HandshakeMessage, TLSError> {
         // Validate the client legacy version
         if clienthello.legacy_version != 0x0303 {
-            return Err(TLSError::InvalidClientHello)
+            return Err(TLSError::InvalidHandshakeVersionError)
         }
 
         // Choose a cipher suite
@@ -794,7 +751,7 @@ impl<'a> TLS_session<'a> {
         // Make sure we only have null compression sent
         if clienthello.legacy_compression_methods.len() != 1 ||
             clienthello.legacy_compression_methods[0] != 0x00 {
-                return Err(TLSError::InvalidClientHello)
+                return Err(TLSError::InvalidHandshakeCompression)
         }
 
         // Go through extensions and figure out which replies we need to send
@@ -825,7 +782,7 @@ impl<'a> TLS_session<'a> {
 
                 let msg_len = ret.len();
                 if msg_len > 16777215 {
-                    return Err(TLSError::InvalidMessage);
+                    return Err(TLSError::InvalidMessageLength);
                 }
 
 				if data.len() + ret.len() > (16384 - 4) {
@@ -867,7 +824,7 @@ impl<'a> TLS_session<'a> {
 
                 let msg_len = ret.len();
                 if msg_len > 16777215 {
-                    return Err(TLSError::InvalidMessage);
+                    return Err(TLSError::InvalidMessageLength);
                 }
 
                 // FIXME: Count the new message header length in this
@@ -922,7 +879,7 @@ impl<'a> TLS_session<'a> {
                 let hs_message = if let HandshakeMessage::ClientHello(clienthello) = hs_message {
                     try!(self.negotiate_serverhello(&clienthello))
                 } else {
-                    return Err(TLSError::InvalidState)
+                    return Err(TLSError::InvalidMessage)
                 };
 
 				// Check if this is a ServerHello or a HelloRetryRequest
@@ -945,7 +902,7 @@ impl<'a> TLS_session<'a> {
 								We have already sent a HelloRetryRequest once, so
 								abort to avoid DoS loop
 							*/
-							return Err(TLSError::InvalidState)
+							return Err(TLSError::InvalidMessage)
 						}
 						self.sent_hello_retry = true;
 
@@ -1157,7 +1114,9 @@ impl<'a> TLS_session<'a> {
 				Err(e) => {
 
                     // Send a TLS Alert
-                    self.send_alert(alert::error_to_alert(e));
+                    if let Some(x) = alert::error_to_alert(e) {
+                        self.send_alert(x)
+                    }
 
                     return Err(e)
                 },
@@ -1177,7 +1136,7 @@ impl<'a> TLS_session<'a> {
 
 		Ok(())
 	}
-    
+
     pub fn tls_receive(&mut self, dest: &mut [u8]) -> Result<usize, TLSError> {
 
         if self.state != TLSState::Connected {
@@ -1186,7 +1145,7 @@ impl<'a> TLS_session<'a> {
 
         self.read_encrypted(dest)
     }
-    
+
     pub fn tls_send(&mut self, src: &[u8]) -> Result<usize, TLSError> {
 
         if self.state != TLSState::Connected {
@@ -1197,7 +1156,7 @@ impl<'a> TLS_session<'a> {
     }
 
     pub fn tls_close(&mut self) {
-        self.send_close_notify();
+        self.send_alert(AlertDescription::CloseNotify);
         self.close_connection();
     }
 }

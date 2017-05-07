@@ -23,13 +23,13 @@ pub enum TLSState {
 }
 
 // This is a list of possible errors
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum TLSError {
     InvalidCertificatePath,
     InvalidPrivateKeyPath,
     InvalidCertificateFile,
     InvalidPrivateKeyFile,
-    CryptoError,
+    CryptoInitError,
     InvalidState,
     InvalidMessage,
     ReadError,
@@ -38,13 +38,12 @@ pub enum TLSError {
     InvalidHandshakeVersionError,
     InvalidCiphertextHeader,
     InvalidHandshakeCompression,
+    InvalidMessageLength,
+    InvalidMessagePadding,
     InvalidCipherSuite,
-    InvalidExtensionLength,
-    InvalidClientHello,
     InvalidTHMessage,
     UnsupportedCipherSuite,
     UnsupportedNamedGroup,
-    InvalidClientHelloExtensions,
     DuplicateExtensions,
     MissingExtension,
     InvalidTLSSupportedVersion,
