@@ -843,6 +843,14 @@ impl<'a> TLS_session<'a> {
 		Ok(())
 	}
 
+    fn add_to_thstate(&mut self, msg_type : HandshakeType, hs_message : &HandshakeMessage) -> Result<(), TLSError> {
+        let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+        let hs_msg = HandshakeBytes { msg_type : msg_type, length : 0, body : hs_message.as_bytes() };
+        let ret = hs_msg.as_bytes();
+        unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+        Ok(())
+    }
+
 	fn transition(&mut self, hs_message : HandshakeMessage, config : &TLS_config) -> Result<HandshakeMessage, TLSError> {
 
 		// This queue represents any server messages we need to drain after calling transition
@@ -855,14 +863,6 @@ impl<'a> TLS_session<'a> {
 			TLSState::Start => {
 				// Try to recieve the ClientHello
 				let hs_message = HandshakeMessage::ClientHello(try!(self.read_clienthello()));
-
-                // Update transcript hash state
-                /* let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-
-                let hs_msg = HandshakeBytes { msg_type : HandshakeType::ClientHello, length : 0, body : hs_message.as_bytes() };
-                let ret = hs_msg.as_bytes();
-
-                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) }; */
 
 				// We can transition to the next state
 				self.state = TLSState::RecievedClientHello;
@@ -881,10 +881,7 @@ impl<'a> TLS_session<'a> {
 					HandshakeMessage::ServerHello(_) => {
 
                         // Add the message to our transcript hash state
-                        let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                        let hs_msg = HandshakeBytes { msg_type : HandshakeType::ServerHello, length : 0, body : hs_message.as_bytes() };
-                        let ret = hs_msg.as_bytes();
-                        unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+                        try!(self.add_to_thstate(HandshakeType::ServerHello, &hs_message));
 
 						// We don't need to do anything else except transition state
 						self.state = TLSState::Negotiated;
@@ -946,10 +943,7 @@ impl<'a> TLS_session<'a> {
                 // Send EncryptedExtensions
                 let encrypted_extensions = HandshakeMessage::EncryptedExtensions(EncryptedExtensions{extensions: vec![]});
 
-                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let hs_msg = HandshakeBytes { msg_type : HandshakeType::EncryptedExtensions, length : 0, body : encrypted_extensions.as_bytes() };
-                let ret = hs_msg.as_bytes();
-                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+                try!(self.add_to_thstate(HandshakeType::EncryptedExtensions, &encrypted_extensions));
 
                 encryptedqueue.push(encrypted_extensions);
 
@@ -959,10 +953,7 @@ impl<'a> TLS_session<'a> {
                 }).collect();
                 let cert_message = HandshakeMessage::Certificate(Certificate{certificate_request_context: vec![], certificate_list: cert_message_list});
 
-                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let hs_msg = HandshakeBytes { msg_type : HandshakeType::Certificate, length : 0, body : cert_message.as_bytes() };
-                let ret = hs_msg.as_bytes();
-                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+                try!(self.add_to_thstate(HandshakeType::Certificate, &cert_message));
 
                 encryptedqueue.push(cert_message);
 
@@ -974,10 +965,7 @@ impl<'a> TLS_session<'a> {
                     signature: signature
                 });
 
-                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let hs_msg = HandshakeBytes { msg_type : HandshakeType::CertificateVerify, length : 0, body : certverify_message.as_bytes() };
-                let ret = hs_msg.as_bytes();
-                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+                try!(self.add_to_thstate(HandshakeType::CertificateVerify, &certverify_message));
 
                 encryptedqueue.push(certverify_message);
 
@@ -1000,10 +988,7 @@ impl<'a> TLS_session<'a> {
                     verify_data : try!(crypto::generate_finished(&self.server_hts, &self.th_state))
                 });
 
-                let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
-                let hs_msg = HandshakeBytes { msg_type : HandshakeType::Finished, length : 0, body : finished_message.as_bytes() };
-                let ret = hs_msg.as_bytes();
-                unsafe { crypto::crypto_hash_sha256_update(stateptr, ret.as_ptr(), ret.len() as u64) };
+                try!(self.add_to_thstate(HandshakeType::Finished, &finished_message));
 
                 encryptedqueue.push(finished_message);
 
