@@ -192,7 +192,7 @@ pub fn generate_cert_signature(private_key: &PKey, th_state : &crypto_hash_sha25
 	// Sign the buffer
 	let mut signer = try!(Signer::new(MessageDigest::sha256(), private_key).or(Err(TLSError::SignatureError)));
 	try!(signer.update(vec![0x20; 64].as_slice()).or(Err(TLSError::SignatureError)));
-	try!(signer.update(&Vec::from("tls13 server CertificateVerify")).or(Err(TLSError::SignatureError)));
+	try!(signer.update(&Vec::from("TLS 1.3, server CertificateVerify")).or(Err(TLSError::SignatureError)));
 	try!(signer.update(vec![0].as_slice()).or(Err(TLSError::SignatureError)));
 	try!(signer.update(buffer.as_slice()).or(Err(TLSError::SignatureError)));
 

@@ -361,16 +361,19 @@ impl<'a> TLS_session<'a> {
 		try!(self.reader.read_exact(&mut buffer).or(Err(TLSError::ReadError)));
 
 		// Match content type (is there a better way to do this in Rust stable?)
-        println!("content type is {:?}", &buffer[0]);
 		let contenttype : ContentType = match buffer[0] {
 			23 => ContentType::ApplicationData,
+            21 => {
+                // Process the alert message
+                let alert : AlertDescription = alert::parse_alertdesc(buffer[2]);
+                return Err(self.handle_alert(alert));
+            }
 			_  => return Err(TLSError::InvalidCiphertextHeader)
 		};
 
 		// Match legacy protocol version
 		let legacy_version = bytes_to_u16(&buffer[1..3]);
 		if legacy_version != 0x0301 {
-            println!("legacy version is {:?}", &legacy_version);
 			return Err(TLSError::InvalidCiphertextHeader)
 		}
 
