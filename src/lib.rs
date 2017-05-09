@@ -656,7 +656,7 @@ impl<'a> TLS_session<'a> {
                     }
 
                     // Make sure the client supports TLS 1.3 draft 19
-                    if !sv.versions.contains(&0x7f13) {
+                    if !sv.versions.contains(&0x7f14) {
                         return Err(TLSError::InvalidTLSSupportedVersion);
                     }
 
@@ -758,7 +758,7 @@ impl<'a> TLS_session<'a> {
         let extensions : Vec<Extension> = try!(self.validate_extensions(&clienthello));
 
         Ok(HandshakeMessage::ServerHello(ServerHello{
-            version : 0x07f13, random: try!(crypto::gen_server_random()),
+            version : 0x07f14, random: try!(crypto::gen_server_random()),
             cipher_suite: ciphersuite, extensions : extensions}))
 	}
 
