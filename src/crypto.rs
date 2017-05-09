@@ -84,7 +84,7 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 
 pub fn hkdf_expand_label(secret: &Vec<u8>, label : &Vec<u8>, hashvalue : &Vec<u8>, length : u16) -> Result<Vec<u8>, TLSError> {
 	let mut buffer : Vec<u8> = vec![];
-	let mut fulllabel : Vec<u8> = Vec::from("TLS 1.3, ");
+	let mut fulllabel : Vec<u8> = Vec::from("tls13 ");
 	fulllabel.extend(label.iter());
 
 	// Serialize a HkdfLabel struct directly to the buffer
@@ -165,7 +165,7 @@ pub fn generate_early_secret() -> Result<Vec<u8>, TLSError> {
 }
 
 pub fn generate_derived_secret(secret : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
-	derive_secret(secret, &Vec::from("derived secret"), &vec![])
+	derive_secret(secret, &Vec::from("derived"), &vec![])
 }
 
 pub fn generate_handshake_secret(shared_key : &Vec<u8>, derivedsecret: &Vec<u8>) -> Result<Vec<u8>, TLSError> {
@@ -173,8 +173,8 @@ pub fn generate_handshake_secret(shared_key : &Vec<u8>, derivedsecret: &Vec<u8>)
 }
 
 pub fn generate_hts(hs_secret : &Vec<u8>, th_state: &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
-	let server_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("server handshake traffic secret"), th_state));
-	let client_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("client handshake traffic secret"), th_state));
+	let server_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("s hs traffic"), th_state));
+	let client_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("c hs traffic"), th_state));
 
     Ok((server_hts, client_hts))
 }
@@ -192,7 +192,7 @@ pub fn generate_cert_signature(private_key: &PKey, th_state : &crypto_hash_sha25
 	// Sign the buffer
 	let mut signer = try!(Signer::new(MessageDigest::sha256(), private_key).or(Err(TLSError::SignatureError)));
 	try!(signer.update(vec![0x20; 64].as_slice()).or(Err(TLSError::SignatureError)));
-	try!(signer.update(&Vec::from("TLS 1.3, server CertificateVerify")).or(Err(TLSError::SignatureError)));
+	try!(signer.update(&Vec::from("tls13 server CertificateVerify")).or(Err(TLSError::SignatureError)));
 	try!(signer.update(vec![0].as_slice()).or(Err(TLSError::SignatureError)));
 	try!(signer.update(buffer.as_slice()).or(Err(TLSError::SignatureError)));
 
@@ -219,8 +219,8 @@ pub fn generate_finished(hs_secret : &Vec<u8>, th_state : &crypto_hash_sha256_st
 
 pub fn generate_atf(derived_secret : &Vec<u8>, th_state : &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
     let mastersecret = try!(hkdf_extract(derived_secret, &vec![0; unsafe{ crypto_auth_hmacsha256_bytes() }]));
-    Ok((try!(derive_secret_hashstate(&mastersecret, &Vec::from("server application traffic secret"), th_state)),
-    try!(derive_secret_hashstate(&mastersecret, &Vec::from("client application traffic secret"), th_state))))
+    Ok((try!(derive_secret_hashstate(&mastersecret, &Vec::from("s ap traffic"), th_state)),
+    try!(derive_secret_hashstate(&mastersecret, &Vec::from("c ap traffic"), th_state))))
 }
 
 pub fn generate_traffic_keyring(secret : &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), TLSError> {

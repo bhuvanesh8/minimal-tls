@@ -4,6 +4,7 @@
 // these lints throw lots of warnings
 // in the external bindings, so allow for now
 // to make the log more readable
+#![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
 
