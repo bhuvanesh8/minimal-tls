@@ -57,11 +57,11 @@ pub fn error_to_alert(err: TLSError) -> Option<AlertDescription> {
         TLSError::ReadError => {
             // We can try to send an alert here
             Some(AlertDescription::InternalError)
-        },
+        }
         TLSError::WriteError => {
             // If we can't write, we can't send an alert
             None
-        },
+        }
         TLSError::InvalidHandshakeError => Some(AlertDescription::DecodeError),
         TLSError::InvalidMessageLength => Some(AlertDescription::IllegalParameter),
         TLSError::InvalidMessagePadding => Some(AlertDescription::DecodeError),
@@ -79,6 +79,6 @@ pub fn error_to_alert(err: TLSError) -> Option<AlertDescription> {
         TLSError::InvalidKeyExchange => Some(AlertDescription::DecryptError),
         TLSError::SignatureError => Some(AlertDescription::BadRecordMac),
         TLSError::AEADError => Some(AlertDescription::BadRecordMac),
-        TLSError::ConnectionClosed => None
+        TLSError::ConnectionClosed => None,
     }
 }

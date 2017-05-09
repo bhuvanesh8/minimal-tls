@@ -1,10 +1,12 @@
 extern crate byteorder;
 use self::byteorder::{NetworkEndian, WriteBytesExt};
 
-use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, TLSInnerPlaintext, TLSCiphertext, KeyShare, HandshakeBytes, Alert};
+use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry,
+                 SignatureScheme, KeyUpdateRequest, TLSInnerPlaintext, TLSCiphertext, KeyShare,
+                 HandshakeBytes, Alert};
 
 pub trait TLSToBytes {
-	fn as_bytes(&self) -> Vec<u8>;
+    fn as_bytes(&self) -> Vec<u8>;
 }
 
 /*
@@ -14,22 +16,26 @@ pub trait TLSToBytes {
 	uses two bytes. I think this is really silly but oh well
 */
 
-fn u24_vector_as_bytes<T>(data : &[T]) -> Vec<u8> where T:TLSToBytes {
-	let mut ret : Vec<u8> = vec![];
-    let mut buf : Vec<u8> = vec![];
-	for x in data.iter() {
-		buf.extend(x.as_bytes().iter());
-	}
+fn u24_vector_as_bytes<T>(data: &[T]) -> Vec<u8>
+    where T: TLSToBytes
+{
+    let mut ret: Vec<u8> = vec![];
+    let mut buf: Vec<u8> = vec![];
+    for x in data.iter() {
+        buf.extend(x.as_bytes().iter());
+    }
 
-	ret.write_u32::<NetworkEndian>(buf.len() as u32).unwrap();
+    ret.write_u32::<NetworkEndian>(buf.len() as u32).unwrap();
     ret.drain(0..1);
     ret.extend(buf.iter());
-	ret
+    ret
 }
 
-fn u16_vector_as_bytes<T>(data : &[T]) -> Vec<u8> where T:TLSToBytes {
-    let mut ret : Vec<u8> = vec![];
-    let mut buf : Vec<u8> = vec![];
+fn u16_vector_as_bytes<T>(data: &[T]) -> Vec<u8>
+    where T: TLSToBytes
+{
+    let mut ret: Vec<u8> = vec![];
+    let mut buf: Vec<u8> = vec![];
     for x in data.iter() {
         buf.extend(x.as_bytes().iter());
     }
@@ -39,35 +45,38 @@ fn u16_vector_as_bytes<T>(data : &[T]) -> Vec<u8> where T:TLSToBytes {
     ret
 }
 
-pub fn u16_bytevec_as_bytes(data : &[u8]) -> Vec<u8> {
-	let mut ret : Vec<u8> = vec![];
-	ret.write_u16::<NetworkEndian>(data.len() as u16).unwrap();
+pub fn u16_bytevec_as_bytes(data: &[u8]) -> Vec<u8> {
+    let mut ret: Vec<u8> = vec![];
+    ret.write_u16::<NetworkEndian>(data.len() as u16)
+        .unwrap();
     ret.extend(data.iter());
-	ret
+    ret
 }
 
-fn u8_vector_as_bytes<T>(data : &[T]) -> Vec<u8> where T:TLSToBytes {
-	let mut ret : Vec<u8> = vec![];
-    let mut buf : Vec<u8> = vec![];
-	for x in data.iter() {
-		buf.extend(x.as_bytes().iter());
-	}
+fn u8_vector_as_bytes<T>(data: &[T]) -> Vec<u8>
+    where T: TLSToBytes
+{
+    let mut ret: Vec<u8> = vec![];
+    let mut buf: Vec<u8> = vec![];
+    for x in data.iter() {
+        buf.extend(x.as_bytes().iter());
+    }
 
     ret.push(buf.len() as u8);
     ret.extend(buf.iter());
-	ret
+    ret
 }
 
-pub fn u8_bytevec_as_bytes(data : &[u8]) -> Vec<u8> {
-	let mut ret : Vec<u8> = vec![];
+pub fn u8_bytevec_as_bytes(data: &[u8]) -> Vec<u8> {
+    let mut ret: Vec<u8> = vec![];
     ret.push(data.len() as u8);
     ret.extend(data.iter());
-	ret
+    ret
 }
 
 impl TLSToBytes for Alert {
-	fn as_bytes(&self) -> Vec<u8> {
-        let mut ret : Vec<u8> = vec![];
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut ret: Vec<u8> = vec![];
         ret.push(self.level as u8);
         ret.push(self.description as u8);
         ret
@@ -75,85 +84,89 @@ impl TLSToBytes for Alert {
 }
 
 impl TLSToBytes for TLSPlaintext {
-	fn as_bytes(&self) -> Vec<u8> {
-    	let mut ret : Vec<u8> = Vec::new();
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut ret: Vec<u8> = Vec::new();
 
-    	// Content type
-    	ret.push(self.ctype as u8);
+        // Content type
+        ret.push(self.ctype as u8);
 
-    	// Protocol version
-    	ret.write_u16::<NetworkEndian>(self.legacy_record_version).unwrap();
+        // Protocol version
+        ret.write_u16::<NetworkEndian>(self.legacy_record_version)
+            .unwrap();
 
-    	// Data length
-    	ret.write_u16::<NetworkEndian>(self.length).unwrap();
+        // Data length
+        ret.write_u16::<NetworkEndian>(self.length).unwrap();
 
-    	// Data
-		ret.extend(self.fragment.clone().iter());
+        // Data
+        ret.extend(self.fragment.clone().iter());
 
-		ret
-	}
+        ret
+    }
 }
 
 impl TLSToBytes for TLSCiphertext {
-	fn as_bytes(&self) -> Vec<u8> {
-    	let mut ret : Vec<u8> = Vec::new();
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut ret: Vec<u8> = Vec::new();
 
-    	// Content type
-    	ret.push(self.opaque_type as u8);
+        // Content type
+        ret.push(self.opaque_type as u8);
 
-    	// Protocol version
-    	ret.write_u16::<NetworkEndian>(self.legacy_record_version).unwrap();
+        // Protocol version
+        ret.write_u16::<NetworkEndian>(self.legacy_record_version)
+            .unwrap();
 
-    	// Data length
-    	ret.write_u16::<NetworkEndian>(self.length).unwrap();
+        // Data length
+        ret.write_u16::<NetworkEndian>(self.length).unwrap();
 
-    	// Data
-		ret.extend(self.encrypted_record.clone().iter());
+        // Data
+        ret.extend(self.encrypted_record.clone().iter());
 
-		ret
-	}
+        ret
+    }
 }
 
 impl TLSToBytes for HandshakeBytes {
-	fn as_bytes(&self) -> Vec<u8> {
-    	let mut ret : Vec<u8> = Vec::new();
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut ret: Vec<u8> = Vec::new();
 
-    	// Content type
-    	ret.push(self.msg_type as u8);
+        // Content type
+        ret.push(self.msg_type as u8);
 
         // Body length -- we ignore the stored length here and just recalculate it
         let mut length = vec![];
-        length.write_u32::<NetworkEndian>(self.body.len() as u32).unwrap();
+        length
+            .write_u32::<NetworkEndian>(self.body.len() as u32)
+            .unwrap();
         length.drain(0..1);
         ret.extend(length.iter());
 
         // Body
         ret.extend(self.body.iter());
 
-		ret
-	}
+        ret
+    }
 }
 
 impl TLSToBytes for TLSInnerPlaintext {
-	fn as_bytes(&self) -> Vec<u8> {
-    	let mut ret : Vec<u8> = Vec::new();
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut ret: Vec<u8> = Vec::new();
 
-    	// Data
-		ret.extend(self.content.clone().iter());
+        // Data
+        ret.extend(self.content.clone().iter());
 
         // Content type
-    	ret.push(self.ctype as u8);
+        ret.push(self.ctype as u8);
 
         // Padding
         ret.extend(self.zeros.clone().iter());
 
-		ret
-	}
+        ret
+    }
 }
 
 impl TLSToBytes for CipherSuite {
     fn as_bytes(&self) -> Vec<u8> {
-        let mut ret : Vec<u8> = vec![];
+        let mut ret: Vec<u8> = vec![];
         ret.write_u16::<NetworkEndian>(*self as u16).unwrap();
         ret
     }
@@ -161,10 +174,11 @@ impl TLSToBytes for CipherSuite {
 
 impl TLSToBytes for CertificateEntry {
     fn as_bytes(&self) -> Vec<u8> {
-        let mut ret : Vec<u8> = vec![];
+        let mut ret: Vec<u8> = vec![];
 
         // IMPORTANT: This length here is a u24 in the standard, NOT a u32
-        ret.write_u32::<NetworkEndian>(self.cert_data.len() as u32).unwrap();
+        ret.write_u32::<NetworkEndian>(self.cert_data.len() as u32)
+            .unwrap();
         ret.drain(..1);
         ret.extend(&self.cert_data);
         ret.extend(u16_vector_as_bytes(&self.extensions).iter());
@@ -180,7 +194,7 @@ impl TLSToBytes for KeyUpdateRequest {
 
 impl TLSToBytes for SignatureScheme {
     fn as_bytes(&self) -> Vec<u8> {
-        let mut ret : Vec<u8> = vec![];
+        let mut ret: Vec<u8> = vec![];
         ret.write_u16::<NetworkEndian>(*self as u16).unwrap();
         ret
     }
@@ -188,15 +202,17 @@ impl TLSToBytes for SignatureScheme {
 
 impl TLSToBytes for Extension {
     fn as_bytes(&self) -> Vec<u8> {
-        let mut ret : Vec<u8> = vec![];
-        let mut buf : Vec<u8> = vec![];
+        let mut ret: Vec<u8> = vec![];
+        let mut buf: Vec<u8> = vec![];
 
         // Write extension data length
 
         match *self {
             Extension::KeyShare(KeyShare::ServerHello(ref inner)) => {
-                buf.write_u16::<NetworkEndian>(inner.group as u16).unwrap();
-                buf.write_u16::<NetworkEndian>(inner.key_exchange.len() as u16).unwrap();
+                buf.write_u16::<NetworkEndian>(inner.group as u16)
+                    .unwrap();
+                buf.write_u16::<NetworkEndian>(inner.key_exchange.len() as u16)
+                    .unwrap();
                 buf.extend(&inner.key_exchange);
 
                 ret.write_u16::<NetworkEndian>(40).unwrap();
@@ -211,61 +227,66 @@ impl TLSToBytes for Extension {
 }
 
 impl TLSToBytes for HandshakeMessage {
-	fn as_bytes(&self) -> Vec<u8> {
+    fn as_bytes(&self) -> Vec<u8> {
 
-        let mut ret : Vec<u8> = vec![];
+        let mut ret: Vec<u8> = vec![];
 
-	    match *self {
-			HandshakeMessage::InvalidMessage | HandshakeMessage::EndOfEarlyData(_) => (),
-			HandshakeMessage::ClientHello(ref inner) => {
-                ret.write_u16::<NetworkEndian>(inner.legacy_version).unwrap();
+        match *self {
+            HandshakeMessage::InvalidMessage |
+            HandshakeMessage::EndOfEarlyData(_) => (),
+            HandshakeMessage::ClientHello(ref inner) => {
+                ret.write_u16::<NetworkEndian>(inner.legacy_version)
+                    .unwrap();
                 ret.extend(inner.random.iter());
                 ret.extend(u8_bytevec_as_bytes(&inner.legacy_session_id).iter());
                 ret.extend(u16_vector_as_bytes(&inner.cipher_suites).iter());
                 ret.extend(u8_bytevec_as_bytes(&inner.legacy_compression_methods).iter());
                 ret.extend(u16_vector_as_bytes(&inner.extensions).iter());
-            },
-			HandshakeMessage::ServerHello(ref inner) => {
+            }
+            HandshakeMessage::ServerHello(ref inner) => {
                 ret.write_u16::<NetworkEndian>(inner.version).unwrap();
                 ret.extend(inner.random.iter());
                 ret.extend(inner.cipher_suite.as_bytes().iter());
                 ret.extend(u16_vector_as_bytes(&inner.extensions).iter());
-            },
-			HandshakeMessage::HelloRetryRequest(ref inner) => {
-                ret.write_u16::<NetworkEndian>(inner.server_version).unwrap();
+            }
+            HandshakeMessage::HelloRetryRequest(ref inner) => {
+                ret.write_u16::<NetworkEndian>(inner.server_version)
+                    .unwrap();
                 ret.extend(inner.cipher_suite.as_bytes().iter());
                 ret.extend(u16_vector_as_bytes(&inner.extensions).iter());
-            },
-			HandshakeMessage::EncryptedExtensions(ref inner) => {
+            }
+            HandshakeMessage::EncryptedExtensions(ref inner) => {
                 ret.extend(u16_vector_as_bytes(&inner.extensions).iter());
-            },
-			HandshakeMessage::CertificateRequest(ref inner) => {
+            }
+            HandshakeMessage::CertificateRequest(ref inner) => {
                 ret.extend(u8_bytevec_as_bytes(&inner.certificate_request_context).iter());
                 ret.extend(u16_vector_as_bytes(&inner.extensions).iter());
-            },
-			HandshakeMessage::Certificate(ref inner) => {
+            }
+            HandshakeMessage::Certificate(ref inner) => {
                 ret.extend(u8_bytevec_as_bytes(&inner.certificate_request_context).iter());
                 ret.extend(u24_vector_as_bytes(&inner.certificate_list).iter());
-            },
-			HandshakeMessage::CertificateVerify(ref inner) => {
+            }
+            HandshakeMessage::CertificateVerify(ref inner) => {
                 ret.extend(inner.algorithm.as_bytes().iter());
                 ret.extend(u16_bytevec_as_bytes(&inner.signature).iter());
-            },
-			HandshakeMessage::Finished(ref inner) => {
+            }
+            HandshakeMessage::Finished(ref inner) => {
                 ret.extend(inner.verify_data.iter());
                 // ret.extend(u16_bytevec_as_bytes(&inner.verify_data).iter());
-            },
-			HandshakeMessage::NewSessionTicket(ref inner) => {
-                ret.write_u32::<NetworkEndian>(inner.ticket_lifetime).unwrap();
-                ret.write_u32::<NetworkEndian>(inner.ticket_age_add).unwrap();
+            }
+            HandshakeMessage::NewSessionTicket(ref inner) => {
+                ret.write_u32::<NetworkEndian>(inner.ticket_lifetime)
+                    .unwrap();
+                ret.write_u32::<NetworkEndian>(inner.ticket_age_add)
+                    .unwrap();
                 ret.extend(u16_bytevec_as_bytes(&inner.ticket).iter());
                 ret.extend(u16_vector_as_bytes(&inner.extensions).iter());
-            },
-			HandshakeMessage::KeyUpdate(ref inner) => {
+            }
+            HandshakeMessage::KeyUpdate(ref inner) => {
                 ret.extend(inner.request_update.as_bytes().iter());
-            },
-	    };
+            }
+        };
 
         ret
-	}
+    }
 }

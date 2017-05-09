@@ -8,16 +8,16 @@ use std::net::{TcpListener, TcpStream};
 use std::io::{BufReader, BufWriter};
 use std::str;
 
-fn handle_client(stream: &TcpStream, tlsconfig : &TLS_config){
+fn handle_client(stream: &TcpStream, tlsconfig: &TLS_config) {
 
     let mut reader = BufReader::new(stream);
     let mut writer = BufWriter::new(stream);
-    let mut connection : TLS_session = tls_init(&mut reader, &mut writer).unwrap();
+    let mut connection: TLS_session = tls_init(&mut reader, &mut writer).unwrap();
 
 
-    match connection.tls_start(tlsconfig){
+    match connection.tls_start(tlsconfig) {
         Ok(n) => println!("tls_start() returned {:?}", n),
-        Err(e) => println!("tls_start() exited with {:?}", e)
+        Err(e) => println!("tls_start() exited with {:?}", e),
     }
 
     let mut buf = vec![65; 20];

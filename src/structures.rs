@@ -19,7 +19,7 @@ pub enum TLSState {
     WaitFinished,
     Connected,
     Error,
-    Closed
+    Closed,
 }
 
 // This is a list of possible errors
@@ -53,7 +53,7 @@ pub enum TLSError {
     InvalidKeyExchange,
     SignatureError,
     AEADError,
-    ConnectionClosed
+    ConnectionClosed,
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -76,23 +76,23 @@ pub enum ContentType {
 }
 
 pub struct TLSPlaintext {
-    pub ctype : ContentType,
-    pub legacy_record_version : ProtocolVersion,
-    pub length : u16, // MUST not exceed 2^14 bytes, otherwise record_overflow error
-    pub fragment : Vec<u8>,
+    pub ctype: ContentType,
+    pub legacy_record_version: ProtocolVersion,
+    pub length: u16, // MUST not exceed 2^14 bytes, otherwise record_overflow error
+    pub fragment: Vec<u8>,
 }
 
 pub struct TLSInnerPlaintext {
-    pub content : Vec<u8>,
-    pub ctype : ContentType,
-    pub zeros: Vec<u8> // length_of_padding
+    pub content: Vec<u8>,
+    pub ctype: ContentType,
+    pub zeros: Vec<u8>, // length_of_padding
 }
 
 pub struct TLSCiphertext {
-    pub opaque_type : ContentType, // = ContentType::ApplicationData,
-    pub legacy_record_version : ProtocolVersion, //= ContentType::TLSv13,
-    pub length : u16,
-    pub encrypted_record : Vec<u8> // max length is 'length'
+    pub opaque_type: ContentType, // = ContentType::ApplicationData,
+    pub legacy_record_version: ProtocolVersion, //= ContentType::TLSv13,
+    pub length: u16,
+    pub encrypted_record: Vec<u8>, // max length is 'length'
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -135,12 +135,12 @@ pub enum AlertDescription {
     BadCertificateStatusResponse = 113,
     BadCertificateHashValue = 114,
     UnknownPskIdentity = 115,
-    CertificateRequired = 116
+    CertificateRequired = 116,
 }
 
 pub struct Alert {
-    pub level : AlertLevel,
-    pub description : AlertDescription
+    pub level: AlertLevel,
+    pub description: AlertDescription,
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -176,42 +176,42 @@ pub enum HandshakeMessage {
     CertificateVerify(CertificateVerify),
     Finished(Finished),
     NewSessionTicket(NewSessionTicket),
-    KeyUpdate(KeyUpdate)
+    KeyUpdate(KeyUpdate),
 }
 
 pub struct Handshake {
-    pub msg_type : HandshakeType,
-    pub length : u32, // IMPORTANT: This is supposed to be a u24, rust has no u24 so we use u32
-    pub body : HandshakeMessage
+    pub msg_type: HandshakeType,
+    pub length: u32, // IMPORTANT: This is supposed to be a u24, rust has no u24 so we use u32
+    pub body: HandshakeMessage,
 }
 
 // Used to ease borrowing concerns in serialization when we have already serialized the body
 pub struct HandshakeBytes {
-    pub msg_type : HandshakeType,
-    pub length : u32, // IMPORTANT: This is supposed to be a u24, rust has no u24 so we use u32
-    pub body : Vec<u8>
+    pub msg_type: HandshakeType,
+    pub length: u32, // IMPORTANT: This is supposed to be a u24, rust has no u24 so we use u32
+    pub body: Vec<u8>,
 }
 
 pub struct ClientHello {
-    pub legacy_version : u16, // 0x0303,
+    pub legacy_version: u16, // 0x0303,
     pub random: Random,
-    pub legacy_session_id : Vec<u8>, // <0..32>
-    pub cipher_suites : Vec<CipherSuite>, // <2..2^16-2>,
+    pub legacy_session_id: Vec<u8>, // <0..32>
+    pub cipher_suites: Vec<CipherSuite>, // <2..2^16-2>,
     pub legacy_compression_methods: Vec<u8>,
-    pub extensions: Vec<Extension> // <8..2^16-2>
+    pub extensions: Vec<Extension>, // <8..2^16-2>
 }
 
 pub struct ServerHello {
-    pub version : ProtocolVersion,
-    pub random : Random,
-    pub cipher_suite : CipherSuite,
-    pub extensions : Vec<Extension> // <6..2^16-2>
+    pub version: ProtocolVersion,
+    pub random: Random,
+    pub cipher_suite: CipherSuite,
+    pub extensions: Vec<Extension>, // <6..2^16-2>
 }
 
 pub struct HelloRetryRequest {
-    pub server_version : ProtocolVersion,
-    pub cipher_suite : CipherSuite,
-    pub extensions : Vec<Extension> // <2..2^16-1>
+    pub server_version: ProtocolVersion,
+    pub cipher_suite: CipherSuite,
+    pub extensions: Vec<Extension>, // <2..2^16-1>
 }
 
 pub enum Extension {
@@ -242,14 +242,14 @@ pub enum ExtensionType {
 }
 
 pub struct KeyShareEntry {
-    pub group : NamedGroup,
-    pub key_exchange : Vec<u8> // <1..2^16-1>
+    pub group: NamedGroup,
+    pub key_exchange: Vec<u8>, // <1..2^16-1>
 }
 
 pub enum KeyShare {
     ClientHello(Vec<KeyShareEntry>),
     HelloRetryRequest(NamedGroup),
-    ServerHello(KeyShareEntry)
+    ServerHello(KeyShareEntry),
 }
 
 pub enum PskKeyExchangeMode {
@@ -258,7 +258,7 @@ pub enum PskKeyExchangeMode {
 }
 
 pub struct PskKeyExchangeModes {
-    pub ke_modes : Vec<PskKeyExchangeMode> // <1..255>
+    pub ke_modes: Vec<PskKeyExchangeMode>, // <1..255>
 }
 
 pub struct Empty {}
@@ -266,31 +266,31 @@ pub struct Empty {}
 pub enum EarlyDataIndicationOptions {
     NewSessionTicket(u32), // max_early_data_size,
     ClientHello(Empty),
-    EncryptedExtensions(Empty)
+    EncryptedExtensions(Empty),
 }
 
 pub struct EarlyDataIndication {
-    pub value : EarlyDataIndicationOptions
+    pub value: EarlyDataIndicationOptions,
 }
 
 pub struct PskIdentity {
-    pub identity : Vec<u8>, // <1..2^16-1>
-    pub obfuscated_ticket_age : u32
+    pub identity: Vec<u8>, // <1..2^16-1>
+    pub obfuscated_ticket_age: u32,
 }
 
 pub type PskBinderEntry = Vec<u8>; // <32..255>
 
 pub struct PreSharedKeyExtension {
-    pub identities : Vec<PskIdentity>,
-    pub binders : Vec<PskBinderEntry>,
+    pub identities: Vec<PskIdentity>,
+    pub binders: Vec<PskBinderEntry>,
 }
 
 pub struct SupportedVersions {
-    pub versions : Vec<ProtocolVersion>, // <2..254>
+    pub versions: Vec<ProtocolVersion>, // <2..254>
 }
 
 pub struct Cookie {
-    pub cookie : Vec<u8> // <1..2^16-1>
+    pub cookie: Vec<u8>, // <1..2^16-1>
 }
 
 // Should be 2 bytes, u16
@@ -323,7 +323,7 @@ pub enum SignatureScheme {
 
 
 pub struct SignatureSchemeList {
-    pub supported_signature_algorithms : Vec<SignatureScheme>, // <2..2^16-2>
+    pub supported_signature_algorithms: Vec<SignatureScheme>, // <2..2^16-2>
 }
 
 #[allow(non_camel_case_types)]
@@ -348,59 +348,59 @@ pub enum NamedGroup {
 }
 
 pub struct NamedGroupList {
-    pub named_group_list : Vec<NamedGroup> // <2..2^16-1>
+    pub named_group_list: Vec<NamedGroup>, // <2..2^16-1>
 }
 
 type DistinguishedName = Vec<u8>; // <1..2^16-1>
 
 pub struct CertificateAuthoritiesExtension {
-    pub authorities : Vec<DistinguishedName> //<3..2^16-1>;
+    pub authorities: Vec<DistinguishedName>, //<3..2^16-1>;
 }
 
 pub struct EncryptedExtensions {
-    pub extensions : Vec<Extension> //<0..2^16-1>;
+    pub extensions: Vec<Extension>, //<0..2^16-1>;
 }
 
 pub struct CertificateRequest {
-    pub certificate_request_context : Vec<u8>, // <0..2^8-1>;
-    pub extensions : Vec<Extension> //<2..2^16-1>;
+    pub certificate_request_context: Vec<u8>, // <0..2^8-1>;
+    pub extensions: Vec<Extension>, //<2..2^16-1>;
 }
 
 pub struct OIDFilter {
-    pub certificate_extension_oid : Vec<u8>, //<1..2^8-1>;
-    pub certificate_extension_values : Vec<u8>, //<0..2^16-1>;
+    pub certificate_extension_oid: Vec<u8>, //<1..2^8-1>;
+    pub certificate_extension_values: Vec<u8>, //<0..2^16-1>;
 }
 
 pub struct OIDFilterExtension {
-    pub filters : Vec<u8>, //<0..2^16-1>;
+    pub filters: Vec<u8>, //<0..2^16-1>;
 }
 
 pub type ASN1Cert = Vec<u8>; //<1..2^24-1>;
 
 pub struct CertificateEntry {
-    pub cert_data : ASN1Cert,
-    pub extensions : Vec<Extension> //<0..2^16-1>;
+    pub cert_data: ASN1Cert,
+    pub extensions: Vec<Extension>, //<0..2^16-1>;
 }
 
 pub struct Certificate {
-    pub certificate_request_context : Vec<u8>, //<0..2^8-1>;
-    pub certificate_list : Vec<CertificateEntry> //<0..2^24-1>;
+    pub certificate_request_context: Vec<u8>, //<0..2^8-1>;
+    pub certificate_list: Vec<CertificateEntry>, //<0..2^24-1>;
 }
 
 pub struct CertificateVerify {
-    pub algorithm : SignatureScheme,
-    pub signature : Vec<u8> //<0..2^16-1>;
+    pub algorithm: SignatureScheme,
+    pub signature: Vec<u8>, //<0..2^16-1>;
 }
 
 pub struct Finished {
-    pub verify_data : Vec<u8> //[Hash.length];
+    pub verify_data: Vec<u8>, //[Hash.length];
 }
 
 pub struct NewSessionTicket {
-    pub ticket_lifetime : u32,
-    pub ticket_age_add : u32,
-    pub ticket : Vec<u8>, //<1..2^16-1>;
-    pub extensions : Vec<Extension>, //<0..2^16-2>;
+    pub ticket_lifetime: u32,
+    pub ticket_age_add: u32,
+    pub ticket: Vec<u8>, //<1..2^16-1>;
+    pub extensions: Vec<Extension>, //<0..2^16-2>;
 }
 
 pub struct EndOfEarlyData {}
@@ -412,5 +412,5 @@ pub enum KeyUpdateRequest {
 }
 
 pub struct KeyUpdate {
-    pub request_update : KeyUpdateRequest,
+    pub request_update: KeyUpdateRequest,
 }
