@@ -25,7 +25,7 @@ pub fn gen_server_random() -> Result<[u8; 32], TLSError> {
 
 // FIXME: Check return value on libsodium functions
 
-pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
+pub fn x25519_key_exchange(client_pub : &[u8]) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
 
     let mut secretkey : Vec<u8> = vec![0; unsafe{ crypto_box_secretkeybytes() }];
     let mut publickey : Vec<u8> = vec![0; unsafe{ crypto_box_publickeybytes() }];
@@ -49,7 +49,7 @@ pub fn x25519_key_exchange(client_pub : &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), 
 }
 
 // Both of these functions are taken from RFC 5869
-pub fn hkdf_extract(salt: &Vec<u8>, ikm: &Vec<u8>) -> Result<Vec<u8>, TLSError> {
+pub fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> Result<Vec<u8>, TLSError> {
 	let mut result : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];
 
 	unsafe { crypto_auth_hmacsha256(result.as_mut_ptr(), ikm.as_ptr(), ikm.len() as u64, salt.as_ptr()) };
@@ -57,7 +57,7 @@ pub fn hkdf_extract(salt: &Vec<u8>, ikm: &Vec<u8>) -> Result<Vec<u8>, TLSError> 
 	Ok(result)
 }
 
-pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<u8>, TLSError> {
+pub fn hkdf_expand(prk: &[u8], info: &[u8], length : usize) -> Result<Vec<u8>, TLSError> {
 	let mut result : Vec<u8> = Vec::with_capacity(length);
 
 	let hashlen = unsafe { crypto_auth_hmacsha256_bytes() };
@@ -82,7 +82,7 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 	Ok(result)
 }
 
-pub fn hkdf_expand_label(secret: &Vec<u8>, label : &Vec<u8>, hashvalue : &Vec<u8>, length : u16) -> Result<Vec<u8>, TLSError> {
+pub fn hkdf_expand_label(secret: &[u8], label : &[u8], hashvalue : &[u8], length : u16) -> Result<Vec<u8>, TLSError> {
 	let mut buffer : Vec<u8> = vec![];
 	let mut fulllabel : Vec<u8> = Vec::from("tls13 ");
 	fulllabel.extend(label.iter());
@@ -95,7 +95,7 @@ pub fn hkdf_expand_label(secret: &Vec<u8>, label : &Vec<u8>, hashvalue : &Vec<u8
 	hkdf_expand(secret, &buffer, length as usize)
 }
 
-pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLSError> {
+pub fn transcript_hash(messages : &[HandshakeMessage]) -> Result<Vec<u8>, TLSError> {
 
 	let mut buffer : Vec<u8> = vec![0; unsafe { crypto_auth_hmacsha256_bytes() }];
 
@@ -108,16 +108,16 @@ pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLS
 	for x in messages {
 
         // Look up type
-        let msg_type = match x {
-            &HandshakeMessage::ClientHello(_) => HandshakeType::ClientHello,
-            &HandshakeMessage::ServerHello(_) => HandshakeType::ServerHello,
-            &HandshakeMessage::EncryptedExtensions(_) => HandshakeType::EncryptedExtensions,
-            &HandshakeMessage::EndOfEarlyData(_) => HandshakeType::EndOfEarlyData,
-            &HandshakeMessage::HelloRetryRequest(_) => HandshakeType::HelloRetryRequest,
-            &HandshakeMessage::CertificateRequest(_) => HandshakeType::CertificateRequest,
-            &HandshakeMessage::Certificate(_) => HandshakeType::Certificate,
-            &HandshakeMessage::CertificateVerify(_) => HandshakeType::CertificateVerify,
-            &HandshakeMessage::Finished(_) => HandshakeType::Finished,
+        let msg_type = match *x {
+            HandshakeMessage::ClientHello(_) => HandshakeType::ClientHello,
+            HandshakeMessage::ServerHello(_) => HandshakeType::ServerHello,
+            HandshakeMessage::EncryptedExtensions(_) => HandshakeType::EncryptedExtensions,
+            HandshakeMessage::EndOfEarlyData(_) => HandshakeType::EndOfEarlyData,
+            HandshakeMessage::HelloRetryRequest(_) => HandshakeType::HelloRetryRequest,
+            HandshakeMessage::CertificateRequest(_) => HandshakeType::CertificateRequest,
+            HandshakeMessage::Certificate(_) => HandshakeType::Certificate,
+            HandshakeMessage::CertificateVerify(_) => HandshakeType::CertificateVerify,
+            HandshakeMessage::Finished(_) => HandshakeType::Finished,
             _ => { return Err(TLSError::InvalidTHMessage) }
         };
 
@@ -131,7 +131,7 @@ pub fn transcript_hash(messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLS
 	Ok(buffer)
 }
 
-pub fn derive_secret(secret: &Vec<u8>, label : &Vec<u8>, messages : &Vec<HandshakeMessage>) -> Result<Vec<u8>, TLSError> {
+pub fn derive_secret(secret: &[u8], label : &[u8], messages : &[HandshakeMessage]) -> Result<Vec<u8>, TLSError> {
     let ret = try!(transcript_hash(messages));
     hkdf_expand_label(secret, label, &ret, ret.len() as u16)
 }
@@ -146,7 +146,7 @@ impl Clone for crypto_hash_sha256_state {
     }
 }
 
-pub fn derive_secret_hashstate(secret: &Vec<u8>, label : &Vec<u8>, th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
+pub fn derive_secret_hashstate(secret: &[u8], label : &[u8], th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
 
 	// Copy the hash state struct
     let mut th_copy = (*th_state).clone();
@@ -164,15 +164,15 @@ pub fn generate_early_secret() -> Result<Vec<u8>, TLSError> {
 	hkdf_extract(&vec![0; hashlen], &vec![0; hashlen])
 }
 
-pub fn generate_derived_secret(secret : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
-	derive_secret(secret, &Vec::from("derived"), &vec![])
+pub fn generate_derived_secret(secret : &[u8]) -> Result<Vec<u8>, TLSError> {
+	derive_secret(secret, &Vec::from("derived"), &[])
 }
 
-pub fn generate_handshake_secret(shared_key : &Vec<u8>, derivedsecret: &Vec<u8>) -> Result<Vec<u8>, TLSError> {
+pub fn generate_handshake_secret(shared_key : &[u8], derivedsecret: &[u8]) -> Result<Vec<u8>, TLSError> {
 	hkdf_extract(derivedsecret, shared_key)
 }
 
-pub fn generate_hts(hs_secret : &Vec<u8>, th_state: &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
+pub fn generate_hts(hs_secret : &[u8], th_state: &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
 	let server_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("s hs traffic"), th_state));
 	let client_hts = try!(derive_secret_hashstate(hs_secret, &Vec::from("c hs traffic"), th_state));
 
@@ -199,9 +199,9 @@ pub fn generate_cert_signature(private_key: &PKey, th_state : &crypto_hash_sha25
 	Ok(try!(signer.finish().or(Err(TLSError::SignatureError))))
 }
 
-pub fn generate_finished(hs_secret : &Vec<u8>, th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
-	let finished_key = try!(hkdf_expand_label(&hs_secret,
-		&Vec::from("finished"), &vec![], unsafe { crypto_auth_hmacsha256_bytes() } as u16));
+pub fn generate_finished(hs_secret : &[u8], th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
+	let finished_key = try!(hkdf_expand_label(hs_secret,
+		&Vec::from("finished"), &[], unsafe { crypto_auth_hmacsha256_bytes() } as u16));
 
 	// Copy the hash state struct
     let mut th_copy = (*th_state).clone();
@@ -217,25 +217,25 @@ pub fn generate_finished(hs_secret : &Vec<u8>, th_state : &crypto_hash_sha256_st
 	Ok(result)
 }
 
-pub fn generate_atf(derived_secret : &Vec<u8>, th_state : &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
+pub fn generate_atf(derived_secret : &[u8], th_state : &crypto_hash_sha256_state) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
     let mastersecret = try!(hkdf_extract(derived_secret, &vec![0; unsafe{ crypto_auth_hmacsha256_bytes() }]));
     Ok((try!(derive_secret_hashstate(&mastersecret, &Vec::from("s ap traffic"), th_state)),
     try!(derive_secret_hashstate(&mastersecret, &Vec::from("c ap traffic"), th_state))))
 }
 
-pub fn generate_traffic_keyring(secret : &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
-    let key = try!(hkdf_expand_label(secret, &Vec::from("key"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_keybytes() } as u16));
-    let iv = try!(hkdf_expand_label(secret, &Vec::from("iv"), &vec![], unsafe { crypto_aead_chacha20poly1305_ietf_npubbytes() } as u16));
+pub fn generate_traffic_keyring(secret : &[u8]) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
+    let key = try!(hkdf_expand_label(secret, &Vec::from("key"), &[], unsafe { crypto_aead_chacha20poly1305_ietf_keybytes() } as u16));
+    let iv = try!(hkdf_expand_label(secret, &Vec::from("iv"), &[], unsafe { crypto_aead_chacha20poly1305_ietf_npubbytes() } as u16));
     Ok((key, iv))
 }
 
-pub fn generate_nonce(sequence_number : u64, aead_iv : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
+pub fn generate_nonce(sequence_number : u64, aead_iv : &[u8]) -> Result<Vec<u8>, TLSError> {
     let mut buffer = vec![0; aead_iv.len() - 8];
 	buffer.write_u64::<NetworkEndian>(sequence_number).unwrap();
     Ok((0..buffer.len()).map(|x| buffer[x] ^ aead_iv[x]).collect())
 }
 
-pub fn aead_encrypt(write_key : &Vec<u8>, nonce : &Vec<u8>, plaintext : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
+pub fn aead_encrypt(write_key : &[u8], nonce : &[u8], plaintext : &[u8]) -> Result<Vec<u8>, TLSError> {
     // Buffer for ciphertext
     let mut buffer : Vec<u8> = vec![0; plaintext.len() + unsafe { crypto_aead_chacha20poly1305_ietf_abytes() }];
     let mut buffer_len : u64 = 0;
@@ -244,7 +244,7 @@ pub fn aead_encrypt(write_key : &Vec<u8>, nonce : &Vec<u8>, plaintext : &Vec<u8>
     Ok(buffer)
 }
 
-pub fn aead_decrypt(key : &Vec<u8>, nonce : &Vec<u8>, ciphertext : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
+pub fn aead_decrypt(key : &[u8], nonce : &[u8], ciphertext : &[u8]) -> Result<Vec<u8>, TLSError> {
     let mut buffer : Vec<u8> = vec![0; ciphertext.len()];
     let mut buffer_len : u64 = 0;
 
@@ -257,9 +257,9 @@ pub fn aead_decrypt(key : &Vec<u8>, nonce : &Vec<u8>, ciphertext : &Vec<u8>) -> 
     Ok(buffer)
 }
 
-pub fn verify_finished(th_state : &crypto_hash_sha256_state, hs_secret : &Vec<u8>, verify_data : &Vec<u8>) -> Result<(), TLSError> {
-	let finished_key = try!(hkdf_expand_label(&hs_secret,
-		&Vec::from("finished"), &vec![], unsafe { crypto_auth_hmacsha256_bytes() } as u16));
+pub fn verify_finished(th_state : &crypto_hash_sha256_state, hs_secret : &[u8], verify_data : &[u8]) -> Result<(), TLSError> {
+	let finished_key = try!(hkdf_expand_label(hs_secret,
+		&Vec::from("finished"), &[], unsafe { crypto_auth_hmacsha256_bytes() } as u16));
 
 	// Copy the hash state struct
     let mut th_copy = (*th_state).clone();

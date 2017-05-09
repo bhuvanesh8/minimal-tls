@@ -14,7 +14,7 @@ pub trait TLSToBytes {
 	uses two bytes. I think this is really silly but oh well
 */
 
-fn u24_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
+fn u24_vector_as_bytes<T>(data : &[T]) -> Vec<u8> where T:TLSToBytes {
 	let mut ret : Vec<u8> = vec![];
     let mut buf : Vec<u8> = vec![];
 	for x in data.iter() {
@@ -27,7 +27,7 @@ fn u24_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
 	ret
 }
 
-fn u16_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
+fn u16_vector_as_bytes<T>(data : &[T]) -> Vec<u8> where T:TLSToBytes {
     let mut ret : Vec<u8> = vec![];
     let mut buf : Vec<u8> = vec![];
     for x in data.iter() {
@@ -39,14 +39,14 @@ fn u16_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
     ret
 }
 
-pub fn u16_bytevec_as_bytes(data : &Vec<u8>) -> Vec<u8> {
+pub fn u16_bytevec_as_bytes(data : &[u8]) -> Vec<u8> {
 	let mut ret : Vec<u8> = vec![];
 	ret.write_u16::<NetworkEndian>(data.len() as u16).unwrap();
     ret.extend(data.iter());
 	ret
 }
 
-fn u8_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
+fn u8_vector_as_bytes<T>(data : &[T]) -> Vec<u8> where T:TLSToBytes {
 	let mut ret : Vec<u8> = vec![];
     let mut buf : Vec<u8> = vec![];
 	for x in data.iter() {
@@ -58,7 +58,7 @@ fn u8_vector_as_bytes<T>(data : &Vec<T>) -> Vec<u8> where T:TLSToBytes {
 	ret
 }
 
-pub fn u8_bytevec_as_bytes(data : &Vec<u8>) -> Vec<u8> {
+pub fn u8_bytevec_as_bytes(data : &[u8]) -> Vec<u8> {
 	let mut ret : Vec<u8> = vec![];
     ret.push(data.len() as u8);
     ret.extend(data.iter());
@@ -138,17 +138,11 @@ impl TLSToBytes for TLSInnerPlaintext {
 	fn as_bytes(&self) -> Vec<u8> {
     	let mut ret : Vec<u8> = Vec::new();
 
-    	// Data length
-    	// ret.write_u16::<NetworkEndian>(self.content.len() as u16).unwrap();
-
     	// Data
 		ret.extend(self.content.clone().iter());
 
         // Content type
     	ret.push(self.ctype as u8);
-
-        // Padding length
-        // ret.write_u16::<NetworkEndian>(self.zeros.len() as u16).unwrap();
 
         // Padding
         ret.extend(self.zeros.clone().iter());

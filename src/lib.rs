@@ -49,7 +49,7 @@ use self::openssl::ec::EcKey;
 use self::openssl::pkey::PKey;
 
 // Misc. functions
-pub fn bytes_to_u16(bytes : &[u8]) -> u16 {
+fn bytes_to_u16(bytes : &[u8]) -> u16 {
 	((bytes[0] as u16) << 8) | (bytes[1] as u16)
 }
 
@@ -248,10 +248,7 @@ impl<'a> TLS_session<'a> {
     fn handle_alert(&mut self, desc: AlertDescription) -> TLSError {
         // If we have a Closure Alert, we have to notify the client
         match desc {
-            AlertDescription::CloseNotify => {
-               self.send_alert(AlertDescription::CloseNotify);
-            },
-            AlertDescription::UserCanceled => {
+            AlertDescription::CloseNotify | AlertDescription::UserCanceled => {
                self.send_alert(AlertDescription::CloseNotify);
             },
             _ => {}
@@ -484,10 +481,9 @@ impl<'a> TLS_session<'a> {
                 }
             };
 
-            match result {
-                Some(x) => ret.push(x),
-                _ => ()
-            };
+            if let Some(x) = result {
+                ret.push(x);
+            }
         }
 
 		Ok(ret)
@@ -604,10 +600,10 @@ impl<'a> TLS_session<'a> {
         // Since we might not support all the extensions, we should just add them all to the hash now
         let mut buffer = vec![];
         buffer.write_u16::<NetworkEndian>(legacy_version).unwrap();
-        buffer.extend(random.clone().iter());
+        buffer.extend(random.iter());
         buffer.extend(serialization::u8_bytevec_as_bytes(&legacy_session_id));
         buffer.extend(serialization::u16_bytevec_as_bytes(&cipher_suites));
-        buffer.extend(serialization::u8_bytevec_as_bytes(&vec![0]));
+        buffer.extend(serialization::u8_bytevec_as_bytes(&[0]));
         buffer.extend(serialization::u16_bytevec_as_bytes(&extensions));
         let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
         let buffer = HandshakeBytes { msg_type : HandshakeType::ClientHello, length : 0, body : buffer }.as_bytes();
@@ -627,7 +623,7 @@ impl<'a> TLS_session<'a> {
         Ok(ret)
 	}
 
-	fn negotiate_ciphersuite(&mut self, ciphersuites : &Vec<CipherSuite>) -> Result<CipherSuite, TLSError> {
+	fn negotiate_ciphersuite(&mut self, ciphersuites : &[CipherSuite]) -> Result<CipherSuite, TLSError> {
 		// We only support one ciphersuite - TLS_CHACHA20_POLY1305_SHA256
 
 		if !ciphersuites.contains(&CipherSuite::TLS_CHACHA20_POLY1305_SHA256) {
@@ -649,8 +645,8 @@ impl<'a> TLS_session<'a> {
 
         // Check to make sure there is a "supported_versions" extension with TLSv1.3
         for ext in &clienthello.extensions {
-            match ext {
-                &Extension::SupportedVersions(ref sv) => {
+            match *ext {
+                Extension::SupportedVersions(ref sv) => {
                     if processed.contains(&ExtensionType::SupportedVersions) {
                         return Err(TLSError::DuplicateExtensions);
                     }
@@ -662,7 +658,7 @@ impl<'a> TLS_session<'a> {
 
                     processed.push(ExtensionType::SupportedVersions);
                 },
-                &Extension::SignatureAlgorithms(ref ssl) => {
+                Extension::SignatureAlgorithms(ref ssl) => {
                    /*
                         Technically, we are supposed to parse out the list of supported
                         certificates by the client and verify that our server certificate
@@ -677,7 +673,7 @@ impl<'a> TLS_session<'a> {
                     }
                     processed.push(ExtensionType::SignatureAlgorithms);
                 },
-                &Extension::KeyShare(ref kso) => {
+                Extension::KeyShare(ref kso) => {
                     // FIXME: Client MAY send an empty client_shares list to request
                     // the server choose the group and send it in the next round-trip
 
@@ -755,7 +751,7 @@ impl<'a> TLS_session<'a> {
         // Go through extensions and figure out which replies we need to send
         // FIXME: It's possible that we decide to return a HelloRetryRequest here,
         // so we should handle that
-        let extensions : Vec<Extension> = try!(self.validate_extensions(&clienthello));
+        let extensions : Vec<Extension> = try!(self.validate_extensions(clienthello));
 
         Ok(HandshakeMessage::ServerHello(ServerHello{
             version : 0x07f14, random: try!(crypto::gen_server_random()),
