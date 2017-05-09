@@ -26,7 +26,9 @@ pub enum TLSState {
 #[derive(Debug, Copy, Clone)]
 pub enum TLSError {
     InvalidCertificatePath,
+    InvalidCertificate,
     InvalidPrivateKeyPath,
+    InvalidPrivateKey,
     InvalidCertificateFile,
     InvalidPrivateKeyFile,
     CryptoInitError,

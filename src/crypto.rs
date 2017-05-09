@@ -2,22 +2,17 @@ use std::os::raw::c_void;
 use std::mem;
 use std::ptr;
 use structures::{HandshakeMessage, TLSError, HandshakeType, HandshakeBytes};
-use serialization::{u8_bytevec_as_bytes, u16_bytevec_as_bytes, TLSToBytes};
+use serialization::{u8_bytevec_as_bytes, TLSToBytes};
 
 extern crate openssl;
 use self::openssl::sign::Signer;
 use self::openssl::pkey::PKey;
-use self::openssl::ec::EcKey;
 use self::openssl::hash::MessageDigest;
 
 extern crate byteorder;
 use self::byteorder::{NetworkEndian, WriteBytesExt};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-
-pub fn get_hmac_length() -> usize {
-	unsafe { crypto_auth_hmacsha256_bytes() }
-}
 
 pub fn gen_server_random() -> Result<[u8; 32], TLSError> {
 	let mut ret = [0; 32];
@@ -250,7 +245,7 @@ pub fn aead_encrypt(write_key : &Vec<u8>, nonce : &Vec<u8>, plaintext : &Vec<u8>
 }
 
 pub fn aead_decrypt(key : &Vec<u8>, nonce : &Vec<u8>, ciphertext : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
-    let mut buffer : Vec<u8> = vec![0; ciphertext.len() as usize];
+    let mut buffer : Vec<u8> = vec![0; ciphertext.len()];
     let mut buffer_len : u64 = 0;
 
     println!("encrypted data ({:?}): {:?}", ciphertext.len(), &ciphertext);

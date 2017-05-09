@@ -1,7 +1,7 @@
 extern crate byteorder;
 use self::byteorder::{NetworkEndian, WriteBytesExt};
 
-use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, ASN1Cert, TLSInnerPlaintext, TLSCiphertext, KeyShare, HandshakeBytes, Alert};
+use structures::{HandshakeMessage, TLSPlaintext, CipherSuite, Extension, CertificateEntry, SignatureScheme, KeyUpdateRequest, TLSInnerPlaintext, TLSCiphertext, KeyShare, HandshakeBytes, Alert};
 
 pub trait TLSToBytes {
 	fn as_bytes(&self) -> Vec<u8>;

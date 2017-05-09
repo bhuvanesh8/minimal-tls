@@ -46,7 +46,9 @@ pub fn parse_alertdesc(desc: u8) -> AlertDescription {
 pub fn error_to_alert(err: TLSError) -> Option<AlertDescription> {
     match err {
         TLSError::InvalidCertificatePath => None,
+        TLSError::InvalidCertificate => None,
         TLSError::InvalidPrivateKeyPath => None,
+        TLSError::InvalidPrivateKey => None,
         TLSError::InvalidCertificateFile => None,
         TLSError::InvalidPrivateKeyFile => None,
         TLSError::CryptoInitError => None,

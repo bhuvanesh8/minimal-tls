@@ -6,7 +6,6 @@
 // to make the log more readable
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
-#![allow(dead_code)]
 
 // some non-clippy lints borrowed from
 // https://pascalhertleif.de/artikel/good-practices-for-writing-rust-libraries/
@@ -14,7 +13,7 @@
         missing_debug_implementations,
         missing_copy_implementations,
         trivial_numeric_casts,
-        trivial_casts,
+//        trivial_casts,
         unstable_features,
         unused_import_braces,
         unused_qualifications)]
@@ -30,9 +29,8 @@ mod alert;
 use std::mem;
 use std::io::Read;
 use std::io::Write;
-use pem::{Pem, parse, parse_many};
+use pem::{Pem, parse_many};
 use std::fs::File;
-use std::collections::HashMap;
 use serialization::TLSToBytes;
 extern crate byteorder;
 
@@ -64,14 +62,14 @@ pub fn tls_configure(cert_path: &str, key_path: &str) -> Result<TLS_config, TLSE
     let mut certfile = try!(File::open(cert_path).or(Err(TLSError::InvalidCertificatePath)));
 
     let mut filebuf = String::new();
-    certfile.read_to_string(&mut filebuf);
+    try!(certfile.read_to_string(&mut filebuf).or(Err(TLSError::InvalidCertificate)));
     let certificates = parse_many(&filebuf);
 
     // Read private key
     let mut keyfile = try!(File::open(key_path).or(Err(TLSError::InvalidPrivateKeyPath)));
 
     let mut filebuf = String::new();
-    keyfile.read_to_string(&mut filebuf);
+    try!(keyfile.read_to_string(&mut filebuf).or(Err(TLSError::InvalidPrivateKey)));
 
     // Generate PKey object
     let eckey = try!(EcKey::private_key_from_pem(&filebuf.as_bytes()).or(Err(TLSError::InvalidPrivateKeyFile)));
@@ -345,7 +343,7 @@ impl<'a> TLS_session<'a> {
     fn send_tlsplaintext(&mut self, tlsplaintext : TLSPlaintext) -> Result<(), TLSError> {
     	let data : Vec<u8> = (&tlsplaintext).as_bytes();
 
-    	self.writer.write_all(&data).or(Err(TLSError::ReadError));
+    	try!(self.writer.write_all(&data).or(Err(TLSError::ReadError)));
         self.writer.flush().or(Err(TLSError::ReadError))
     }
 
@@ -356,7 +354,7 @@ impl<'a> TLS_session<'a> {
         self.write_sequence_number += 1;
         self.aead_write_nonce = try!(crypto::generate_nonce(self.write_sequence_number, &self.aead_write_iv));
 
-    	self.writer.write_all(data.as_slice()).or(Err(TLSError::ReadError));
+    	try!(self.writer.write_all(data.as_slice()).or(Err(TLSError::ReadError)));
         self.writer.flush().or(Err(TLSError::ReadError))
     }
 
@@ -464,18 +462,18 @@ impl<'a> TLS_session<'a> {
             let extension_length = (*a as u16) | (*b as u16);
 
             let result : Option<Extension> = match extension_type {
-    			10 => Some(try!(Extension::parse_supported_groups(&mut iter, self))),
-    			13 => Some(try!(Extension::parse_signature_algorithms(&mut iter, self))),
-    			40 => Some(try!(Extension::parse_keyshare(&mut iter, self))),
-    			41 => Some(try!(Extension::parse_preshared_key(&mut iter, self))),
-    			42 => Some(try!(Extension::parse_earlydata(&mut iter, self))),
-    			43 => Some(try!(Extension::parse_supported_versions(&mut iter, self))),
-    			44 => Some(try!(Extension::parse_cookie(&mut iter, self))),
-    			45 => Some(try!(Extension::parse_psk_key_exchange_modes(&mut iter, self))),
+    			10 => Some(try!(Extension::parse_supported_groups(&mut iter))),
+    			13 => Some(try!(Extension::parse_signature_algorithms(&mut iter))),
+    			40 => Some(try!(Extension::parse_keyshare(&mut iter))),
+    			41 => Some(try!(Extension::parse_preshared_key(&mut iter))),
+    			42 => Some(try!(Extension::parse_earlydata(&mut iter))),
+    			43 => Some(try!(Extension::parse_supported_versions(&mut iter))),
+    			44 => Some(try!(Extension::parse_cookie(&mut iter))),
+    			45 => Some(try!(Extension::parse_psk_key_exchange_modes(&mut iter))),
 
                 /* We don't implement the "certificate_authories" extension */
     			47 => None,
-    			48 => Some(try!(Extension::parse_oldfilters(&mut iter, self))),
+    			48 => Some(try!(Extension::parse_oldfilters(&mut iter))),
                 _ => {
                     /* We must ignore unknown extensions, so just read the bytes */
                     for _ in 0..extension_length {
@@ -604,7 +602,7 @@ impl<'a> TLS_session<'a> {
 
         // Since we might not support all the extensions, we should just add them all to the hash now
         let mut buffer = vec![];
-        buffer.write_u16::<NetworkEndian>(legacy_version as u16).unwrap();
+        buffer.write_u16::<NetworkEndian>(legacy_version).unwrap();
         buffer.extend(random.clone().iter());
         buffer.extend(serialization::u8_bytevec_as_bytes(&legacy_session_id));
         buffer.extend(serialization::u16_bytevec_as_bytes(&cipher_suites));
