@@ -8,10 +8,10 @@ use std::net::{TcpListener, TcpStream};
 use std::io::{BufReader, BufWriter};
 use std::str;
 
-fn handle_client(stream: TcpStream, tlsconfig : &TLS_config){
+fn handle_client(stream: &TcpStream, tlsconfig : &TLS_config){
 
-    let mut reader = BufReader::new(&stream);
-    let mut writer = BufWriter::new(&stream);
+    let mut reader = BufReader::new(stream);
+    let mut writer = BufWriter::new(stream);
     let mut connection : TLS_session = tls_init(&mut reader, &mut writer).unwrap();
 
 
@@ -52,7 +52,7 @@ fn spin_server() {
     match listener.accept() {
         Ok((stream, addr)) => {
             println!("connection from {:?}", addr);
-            handle_client(stream, &tlsconfig);
+            handle_client(&stream, &tlsconfig);
         }
         Err(e) => println!("error getting connection {:?}", e),
     }

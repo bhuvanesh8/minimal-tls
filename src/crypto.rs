@@ -64,7 +64,7 @@ pub fn hkdf_expand(prk: &Vec<u8>, info: &Vec<u8>, length : usize) -> Result<Vec<
 
 	let mut n : usize = length / hashlen;
 	if length % hashlen > 0 {
-		n = n + 1;
+		n += 1;
 	}
 
 	(0..n).fold(vec![], |prev, x| {

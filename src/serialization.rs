@@ -222,7 +222,7 @@ impl TLSToBytes for HandshakeMessage {
         let mut ret : Vec<u8> = vec![];
 
 	    match *self {
-			HandshakeMessage::InvalidMessage => (),
+			HandshakeMessage::InvalidMessage | HandshakeMessage::EndOfEarlyData(_) => (),
 			HandshakeMessage::ClientHello(ref inner) => {
                 ret.write_u16::<NetworkEndian>(inner.legacy_version).unwrap();
                 ret.extend(inner.random.iter());
@@ -237,8 +237,6 @@ impl TLSToBytes for HandshakeMessage {
                 ret.extend(inner.cipher_suite.as_bytes().iter());
                 ret.extend(u16_vector_as_bytes(&inner.extensions).iter());
             },
-            // This is correct, it is supposed to be empty
-			HandshakeMessage::EndOfEarlyData(_) => (),
 			HandshakeMessage::HelloRetryRequest(ref inner) => {
                 ret.write_u16::<NetworkEndian>(inner.server_version).unwrap();
                 ret.extend(inner.cipher_suite.as_bytes().iter());

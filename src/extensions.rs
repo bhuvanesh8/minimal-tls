@@ -121,7 +121,7 @@ impl Extension {
             return Err(TLSError::InvalidMessageLength)
         }
 
-        let ke_data : Vec<u8> = iter.take(length as usize).map(|&x| x).collect();
+        let ke_data : Vec<u8> = iter.take(length as usize).cloned().collect();
 
         Ok(KeyShareEntry{group: namedgroup, key_exchange: ke_data})
 	}
@@ -175,7 +175,7 @@ impl Extension {
 				return Err(TLSError::InvalidMessageLength)
 			}
 
-			let identity_data : Vec<u8> = iter.take(length as usize).map(|&x| x).collect();
+			let identity_data : Vec<u8> = iter.take(length as usize).cloned().collect();
 
 			/*
 				This is a code smell, but there's also no clear way to apply the byteorder crate
@@ -211,7 +211,7 @@ impl Extension {
 				return Err(TLSError::InvalidMessageLength)
 			}
 
-			let binder_entry : PskBinderEntry = iter.take(first as usize).map(|&x| x).collect();
+			let binder_entry : PskBinderEntry = iter.take(first as usize).cloned().collect();
 			ret.push(binder_entry);
         }
 
@@ -276,7 +276,7 @@ impl Extension {
         if length < 1 {
             return Err(TLSError::InvalidMessageLength)
         }
-		let ret : Vec<u8> = iter.take(length as usize).map(|&x| x).collect();
+		let ret : Vec<u8> = iter.take(length as usize).cloned().collect();
         Ok(Extension::Cookie(Cookie{cookie : ret}))
 	}
 

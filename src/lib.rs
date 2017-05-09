@@ -73,7 +73,7 @@ pub fn tls_configure(cert_path: &str, key_path: &str) -> Result<TLS_config, TLSE
     try!(keyfile.read_to_string(&mut filebuf).or(Err(TLSError::InvalidPrivateKey)));
 
     // Generate PKey object
-    let eckey = try!(EcKey::private_key_from_pem(&filebuf.as_bytes()).or(Err(TLSError::InvalidPrivateKeyFile)));
+    let eckey = try!(EcKey::private_key_from_pem(filebuf.as_bytes()).or(Err(TLSError::InvalidPrivateKeyFile)));
     let private_key = try!(PKey::from_ec_key(eckey).or(Err(TLSError::InvalidPrivateKeyFile)));
 
     Ok(TLS_config{certificates: certificates, private_key: private_key})
@@ -229,18 +229,13 @@ impl<'a> TLS_session<'a> {
     fn send_alert(&mut self, alertdesc : AlertDescription) {
         let cn = Alert { level : AlertLevel::Fatal, description : alertdesc };
         let data = cn.as_bytes();
-        match self.state {
-            TLSState::Start => self.write(&data, ContentType::Alert),
-            TLSState::RecievedClientHello => self.write(&data, ContentType::Alert),
-            TLSState::Negotiated => self.write_encrypted(&data),
-            TLSState::WaitEndOfEarlyData => self.write_encrypted(&data),
-            TLSState::WaitFlight2 => self.write_encrypted(&data),
-            TLSState::WaitCert => self.write_encrypted(&data),
-            TLSState::WaitCertificateVerify => self.write_encrypted(&data),
-            TLSState::WaitFinished => self.write_encrypted(&data),
-            TLSState::Connected => self.write_encrypted(&data),
-            TLSState::Error => Ok(0),
-            TLSState::Closed => Ok(0)
+
+        // We explicitly don't care about the result here. If the alert fails,
+        // we are closing the connection anyways so it doesn't matter
+        let _ = match self.state {
+            TLSState::Start | TLSState::RecievedClientHello => self.write(&data, ContentType::Alert),
+            TLSState::Error | TLSState::Closed => Ok(0),
+            _ => self.write_encrypted(&data),
         };
     }
 
@@ -265,7 +260,7 @@ impl<'a> TLS_session<'a> {
         // Close the connection
         self.close_connection();
 
-        return TLSError::ConnectionClosed
+        TLSError::ConnectionClosed
     }
 
     fn drain_recordcache(&mut self) {
@@ -366,6 +361,7 @@ impl<'a> TLS_session<'a> {
 		try!(self.reader.read_exact(&mut buffer).or(Err(TLSError::ReadError)));
 
 		// Match content type (is there a better way to do this in Rust stable?)
+        println!("content type is {:?}", &buffer[0]);
 		let contenttype : ContentType = match buffer[0] {
 			23 => ContentType::ApplicationData,
 			_  => return Err(TLSError::InvalidCiphertextHeader)
@@ -374,6 +370,7 @@ impl<'a> TLS_session<'a> {
 		// Match legacy protocol version
 		let legacy_version = bytes_to_u16(&buffer[1..3]);
 		if legacy_version != 0x0301 {
+            println!("legacy version is {:?}", &legacy_version);
 			return Err(TLSError::InvalidCiphertextHeader)
 		}
 
@@ -634,7 +631,7 @@ impl<'a> TLS_session<'a> {
 			return Err(TLSError::UnsupportedCipherSuite)
 		}
 
-		return Ok(CipherSuite::TLS_CHACHA20_POLY1305_SHA256)
+		Ok(CipherSuite::TLS_CHACHA20_POLY1305_SHA256)
 	}
 
     // FIXME: Must not be any recognized extensions that are not valid for a ClientHello
@@ -685,7 +682,7 @@ impl<'a> TLS_session<'a> {
                         return Err(TLSError::DuplicateExtensions);
                     }
 
-                    if let &KeyShare::ClientHello(ref ks) = kso {
+                    if let KeyShare::ClientHello(ref ks) = *kso {
                         // We only support x25519, so make sure this is in the list
                         match (*ks).iter().find(|&x| x.group == NamedGroup::x25519) {
                             Some(x) => {
@@ -763,16 +760,16 @@ impl<'a> TLS_session<'a> {
 	}
 
 	fn send_message(&mut self, messagequeue : Vec<HandshakeMessage>) -> Result<(), TLSError> {
-		if messagequeue.len() > 0 {
+		if !messagequeue.is_empty() {
 			let mut data : Vec<u8> = Vec::new();
 
 			// Loop over all messages and serialize them
 			for x in &messagequeue {
 
-                let msg_type = match x {
-                    &HandshakeMessage::ClientHello(_) => 1,
-                    &HandshakeMessage::ServerHello(_) => 2,
-                    &HandshakeMessage::HelloRetryRequest(_) => 5,
+                let msg_type = match *x {
+                    HandshakeMessage::ClientHello(_) => 1,
+                    HandshakeMessage::ServerHello(_) => 2,
+                    HandshakeMessage::HelloRetryRequest(_) => 5,
                     _ => return Err(TLSError::InvalidMessage)
                 };
 
@@ -803,18 +800,18 @@ impl<'a> TLS_session<'a> {
 	}
 
     fn send_encrypted_message(&mut self, encryptedqueue : Vec<HandshakeMessage>) -> Result<(), TLSError> {
-		if encryptedqueue.len() > 0 {
+		if !encryptedqueue.is_empty() {
 			let mut data : Vec<u8> = Vec::new();
 
 			// Loop over all messages and serialize them
 			for x in &encryptedqueue {
 
-                let msg_type = match x {
-                    &HandshakeMessage::EncryptedExtensions(_) => 8,
-                    &HandshakeMessage::Certificate(_) => 11,
-                    &HandshakeMessage::CertificateRequest(_) => 13,
-                    &HandshakeMessage::CertificateVerify(_) => 15,
-                    &HandshakeMessage::Finished(_) => 20,
+                let msg_type = match *x {
+                    HandshakeMessage::EncryptedExtensions(_) => 8,
+                    HandshakeMessage::Certificate(_) => 11,
+                    HandshakeMessage::CertificateRequest(_) => 13,
+                    HandshakeMessage::CertificateVerify(_) => 15,
+                    HandshakeMessage::Finished(_) => 20,
                     _ => return Err(TLSError::InvalidMessage)
                 };
 
@@ -1063,7 +1060,7 @@ impl<'a> TLS_session<'a> {
                 self.aead_read_nonce = try!(crypto::generate_nonce(self.read_sequence_number, &self.aead_read_iv));
 
                 // Record cache should be empty because we are changing keys
-                if self.recordcache.len() != 0 {
+                if !self.recordcache.is_empty() {
                     return Err(TLSError::InvalidState)
                 }
 
