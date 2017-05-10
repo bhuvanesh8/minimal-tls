@@ -652,7 +652,8 @@ impl<'a> TLS_session<'a> {
             return Err(TLSError::InvalidMessageLength);
         }
 
-        // Process the list of ciphersuites -- in particular, minimal-TLS doesn't support the full list
+        // Process the list of ciphersuites -- in particular,
+        // minimal-TLS doesn't support the full list
         let mut cipher_suites: Vec<u8> = vec![0; cslist_length];
         try!(self.read(cipher_suites.as_mut_slice()));
 
@@ -682,7 +683,6 @@ impl<'a> TLS_session<'a> {
         // FIXME: This is a code smell. We should have a central place for parsing
         // Any sort of HandshakeMessage
 
-        // Since we might not support all the extensions, we should just add them all to the hash now
         let mut buffer = vec![];
         buffer
             .write_u16::<NetworkEndian>(legacy_version)
@@ -1196,12 +1196,8 @@ impl<'a> TLS_session<'a> {
                 // Nowhere else to go from here
                 Ok(HandshakeMessage::InvalidMessage)
             }
-            TLSState::Closed => {
+            TLSState::Closed | TLSState::Error => {
                 // The connection has been closed, so we shouldn't attempt to resume or continue it
-                Ok(HandshakeMessage::InvalidMessage)
-            }
-            TLSState::Error => {
-                // We encountered some error, and we shouldn't attempt to resume this connection
                 Ok(HandshakeMessage::InvalidMessage)
             }
         };

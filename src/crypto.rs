@@ -15,8 +15,11 @@ use self::byteorder::{NetworkEndian, WriteBytesExt};
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 // Crypto buffer size constants
-const auth_hmacsha256_bytes : usize = 32;
-const hash_sha256_bytes : usize = 32;
+const auth_hmacsha256_bytes: usize = 32;
+const hash_sha256_bytes: usize = 32;
+const aead_chacha20poly1305_bytes: usize = 32;
+const aead_chacha20poly1305_npubbytes: usize = 12;
+const aead_chacha20poly1305_abytes: usize = 16;
 
 pub fn gen_server_random() -> Result<[u8; 32], TLSError> {
     let mut ret = [0; 32];
@@ -235,12 +238,8 @@ pub fn generate_cert_signature(private_key: &PKey,
     try!(signer
              .update(b"TLS 1.3, server CertificateVerify")
              .or(Err(TLSError::SignatureError)));
-    try!(signer
-             .update(&[0])
-             .or(Err(TLSError::SignatureError)));
-    try!(signer
-             .update(&buffer)
-             .or(Err(TLSError::SignatureError)));
+    try!(signer.update(&[0]).or(Err(TLSError::SignatureError)));
+    try!(signer.update(&buffer).or(Err(TLSError::SignatureError)));
 
     Ok(try!(signer.finish().or(Err(TLSError::SignatureError))))
 }
@@ -248,10 +247,8 @@ pub fn generate_cert_signature(private_key: &PKey,
 pub fn generate_finished(hs_secret: &[u8],
                          th_state: &crypto_hash_sha256_state)
                          -> Result<Vec<u8>, TLSError> {
-    let finished_key = try!(hkdf_expand_label(hs_secret,
-                                              b"finished",
-                                              &[],
-                                              auth_hmacsha256_bytes as u16));
+    let finished_key =
+        try!(hkdf_expand_label(hs_secret, b"finished", &[], auth_hmacsha256_bytes as u16));
 
     // Copy the hash state struct
     let mut th_copy = (*th_state).clone();
@@ -275,23 +272,14 @@ pub fn generate_finished(hs_secret: &[u8],
 pub fn generate_atf(derived_secret: &[u8],
                     th_state: &crypto_hash_sha256_state)
                     -> Result<(Vec<u8>, Vec<u8>), TLSError> {
-    let mastersecret = try!(hkdf_extract(derived_secret,
-                                         &[0; auth_hmacsha256_bytes]));
+    let mastersecret = try!(hkdf_extract(derived_secret, &[0; auth_hmacsha256_bytes]));
     Ok((try!(derive_secret_hashstate(&mastersecret, b"s ap traffic", th_state)),
         try!(derive_secret_hashstate(&mastersecret, b"c ap traffic", th_state))))
 }
 
 pub fn generate_traffic_keyring(secret: &[u8]) -> Result<(Vec<u8>, Vec<u8>), TLSError> {
-    let key = try!(hkdf_expand_label(secret,
-                                     b"key",
-                                     &[],
-                                     unsafe { crypto_aead_chacha20poly1305_ietf_keybytes() } as
-                                     u16));
-    let iv = try!(hkdf_expand_label(secret,
-                                    b"iv",
-                                    &[],
-                                    unsafe { crypto_aead_chacha20poly1305_ietf_npubbytes() } as
-                                    u16));
+    let key = try!(hkdf_expand_label(secret, b"key", &[], aead_chacha20poly1305_bytes as u16));
+    let iv = try!(hkdf_expand_label(secret, b"iv", &[], aead_chacha20poly1305_npubbytes as u16));
     Ok((key, iv))
 }
 
@@ -307,8 +295,7 @@ pub fn generate_nonce(sequence_number: u64, aead_iv: &[u8]) -> Result<Vec<u8>, T
 
 pub fn aead_encrypt(write_key: &[u8], nonce: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, TLSError> {
     // Buffer for ciphertext
-    let mut buffer: Vec<u8> =
-        vec![0; plaintext.len() + unsafe { crypto_aead_chacha20poly1305_ietf_abytes() }];
+    let mut buffer: Vec<u8> = vec![0; plaintext.len() + aead_chacha20poly1305_abytes];
     let mut buffer_len: u64 = 0;
     unsafe {
         crypto_aead_chacha20poly1305_ietf_encrypt(buffer.as_mut_ptr(),
@@ -349,10 +336,8 @@ pub fn verify_finished(th_state: &crypto_hash_sha256_state,
                        hs_secret: &[u8],
                        verify_data: &[u8])
                        -> Result<(), TLSError> {
-    let finished_key = try!(hkdf_expand_label(hs_secret,
-                                              b"finished",
-                                              &[],
-                                              auth_hmacsha256_bytes as u16));
+    let finished_key =
+        try!(hkdf_expand_label(hs_secret, b"finished", &[], auth_hmacsha256_bytes as u16));
 
     // Copy the hash state struct
     let mut th_copy = (*th_state).clone();
@@ -374,4 +359,7 @@ pub fn verify_finished(th_state: &crypto_hash_sha256_state,
     }
 }
 
-// FIXME: TLS cookie should use HMAC-SHA256 to encode the hash of ClientHello1 when sending HelloRetryRequest
+/*
+    FIXME: TLS cookie should use HMAC-SHA256 to encode the hash of
+    ClientHello1 when sending HelloRetryRequest
+*/
