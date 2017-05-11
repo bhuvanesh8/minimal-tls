@@ -48,6 +48,7 @@ pub enum TLSError {
     UnsupportedNamedGroup,
     DuplicateExtensions,
     MissingExtension,
+    InvalidCookieError,
     InvalidTLSSupportedVersion,
     InvalidKeyShare,
     InvalidKeyExchange,
@@ -177,6 +178,7 @@ pub enum HandshakeMessage {
     Finished(Finished),
     NewSessionTicket(NewSessionTicket),
     KeyUpdate(KeyUpdate),
+    MessageHash(MessageHash),
 }
 
 pub struct Handshake {
@@ -413,4 +415,8 @@ pub enum KeyUpdateRequest {
 
 pub struct KeyUpdate {
     pub request_update: KeyUpdateRequest,
+}
+
+pub struct MessageHash {
+    pub message_hash : Vec<u8>
 }

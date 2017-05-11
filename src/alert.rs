@@ -74,6 +74,7 @@ pub fn error_to_alert(err: TLSError) -> Option<AlertDescription> {
         TLSError::UnsupportedNamedGroup => Some(AlertDescription::IllegalParameter),
         TLSError::DuplicateExtensions => Some(AlertDescription::IllegalParameter),
         TLSError::MissingExtension => Some(AlertDescription::MissingExtension),
+        TLSError::InvalidCookieError => Some(AlertDescription::DecodeError),
         TLSError::InvalidTLSSupportedVersion => Some(AlertDescription::ProtocolVersion),
         TLSError::InvalidKeyShare => Some(AlertDescription::HandshakeFailure),
         TLSError::InvalidKeyExchange => Some(AlertDescription::DecryptError),

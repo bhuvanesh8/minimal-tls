@@ -40,7 +40,8 @@ use structures::{Random, ClientHello, CipherSuite, Extension, ContentType, Hands
                  ServerHello, TLSPlaintext, TLSState, TLSError, ExtensionType, NamedGroup,
                  KeyShare, KeyShareEntry, EncryptedExtensions, CertificateEntry, Certificate,
                  CertificateVerify, SignatureScheme, Finished, TLSCiphertext, TLSInnerPlaintext,
-                 HandshakeType, HandshakeBytes, Alert, AlertLevel, AlertDescription};
+                 HandshakeType, HandshakeBytes, Alert, AlertLevel, AlertDescription,
+                 HelloRetryRequest, Cookie, MessageHash};
 
 extern crate openssl;
 use self::openssl::ec::EcKey;
@@ -54,6 +55,7 @@ fn bytes_to_u16(bytes: &[u8]) -> u16 {
 pub struct TLS_config {
     certificates: Vec<Pem>,
     private_key: PKey,
+    hrr_hmac_key : Vec<u8>,
 }
 
 pub fn tls_configure(cert_path: &str, key_path: &str) -> Result<TLS_config, TLSError> {
@@ -80,8 +82,9 @@ pub fn tls_configure(cert_path: &str, key_path: &str) -> Result<TLS_config, TLSE
     let private_key = try!(PKey::from_ec_key(eckey).or(Err(TLSError::InvalidPrivateKeyFile)));
 
     Ok(TLS_config {
-           certificates: certificates,
-           private_key: private_key,
+            certificates: certificates,
+            private_key: private_key,
+            hrr_hmac_key : try!(crypto::gen_hmac_key()),
        })
 }
 
@@ -276,6 +279,14 @@ impl<'a> TLS_session<'a> {
         self.state = TLSState::Closed;
 
         // FIXME: Secrets need to be removed from memory
+    }
+
+    fn reset(&mut self) {
+        self.drain_recordcache();
+        let stateptr = &mut self.th_state as *mut crypto::crypto_hash_sha256_state;
+        unsafe { crypto::crypto_hash_sha256_init(stateptr) };
+        self.read_sequence_number = 0;
+        self.write_sequence_number = 0;
     }
 
     fn handle_alert(&mut self, desc: AlertDescription) -> TLSError {
@@ -731,11 +742,10 @@ impl<'a> TLS_session<'a> {
 
     // FIXME: Must not be any recognized extensions that are not valid for a ClientHello
     // FIXME: Check for SNI extension
-    fn validate_extensions(&mut self,
+    fn validate_extensions(&mut self, config: &TLS_config,
                            clienthello: &ClientHello)
-                           -> Result<Vec<Extension>, TLSError> {
+                           -> Result<(Vec<Extension>, bool), TLSError> {
 
-        // FIXME: Check to make sure there are no duplicate extensions
         let mut processed = vec![];
 
         // List of extensions we'll return
@@ -771,9 +781,19 @@ impl<'a> TLS_session<'a> {
                     }
                     processed.push(ExtensionType::SignatureAlgorithms);
                 }
+                Extension::Cookie(ref cookie) => {
+                    if processed.contains(&ExtensionType::Cookie) {
+                        return Err(TLSError::DuplicateExtensions);
+                    }
+
+                    // Grab the hash from the cookie and verify the HMAC
+                    let previous_hash = try!(crypto::verify_cookie(&cookie.cookie, &config.hrr_hmac_key));
+
+                    try!(self.add_to_thstate(HandshakeType::MessageHash, &HandshakeMessage::MessageHash(MessageHash { message_hash : previous_hash })));
+
+                    processed.push(ExtensionType::Cookie);
+                }
                 Extension::KeyShare(ref kso) => {
-                    // FIXME: Client MAY send an empty client_shares list to request
-                    // the server choose the group and send it in the next round-trip
 
                     if processed.contains(&ExtensionType::KeyShare) {
                         return Err(TLSError::DuplicateExtensions);
@@ -795,8 +815,17 @@ impl<'a> TLS_session<'a> {
                                 })));
                             }
                             None => {
-                                // FIXME: We should return a HelloRetryRequest here with x25519
-                                return Err(TLSError::InvalidKeyShare);
+                                // Generate our KeyShare response
+                                let ks = Extension::KeyShare(KeyShare::HelloRetryRequest(NamedGroup::x25519));
+
+                                let mut buffer = try!(crypto::finalize_hash(&self.th_state));
+
+                                // Put the current transcript hash and it's HMAC in the Cookie value
+                                let hmac = try!(crypto::calculate_hmac(&buffer, &config.hrr_hmac_key));
+                                buffer.extend(hmac.iter());
+                                let cookie = Extension::Cookie(Cookie{ cookie : buffer });
+
+                                return Ok((vec![ks, cookie], true))
                             }
                         }
 
@@ -829,10 +858,11 @@ impl<'a> TLS_session<'a> {
             return Err(TLSError::MissingExtension);
         }
 
-        Ok(ret)
+        // The second return value indicates whether or not we need to form a HelloRetryRequest
+        Ok((ret, false))
     }
 
-    fn negotiate_serverhello(&mut self,
+    fn negotiate_serverhello(&mut self, config: &TLS_config,
                              clienthello: &ClientHello)
                              -> Result<HandshakeMessage, TLSError> {
         // Validate the client legacy version
@@ -850,16 +880,27 @@ impl<'a> TLS_session<'a> {
         }
 
         // Go through extensions and figure out which replies we need to send
-        // FIXME: It's possible that we decide to return a HelloRetryRequest here,
-        // so we should handle that
-        let extensions: Vec<Extension> = try!(self.validate_extensions(clienthello));
+        let (extensions, is_hrr) = try!(self.validate_extensions(config, clienthello));
 
-        Ok(HandshakeMessage::ServerHello(ServerHello {
-                                             version: 0x07f14,
-                                             random: try!(crypto::gen_server_random()),
-                                             cipher_suite: ciphersuite,
-                                             extensions: extensions,
-                                         }))
+        match is_hrr {
+            true => {
+                // We need to send a HelloRetryRequest instead
+                Ok(HandshakeMessage::HelloRetryRequest(HelloRetryRequest {
+                    server_version : 0x07f14,
+                    cipher_suite : ciphersuite,
+                    extensions : extensions,
+                }))
+            },
+            false => {
+                Ok(HandshakeMessage::ServerHello(ServerHello {
+                     version: 0x07f14,
+                     random: try!(crypto::gen_server_random()),
+                     cipher_suite: ciphersuite,
+                     extensions: extensions,
+                 }))
+            }
+        }
+
     }
 
     fn send_message(&mut self, messagequeue: Vec<HandshakeMessage>) -> Result<(), TLSError> {
@@ -989,7 +1030,7 @@ impl<'a> TLS_session<'a> {
             TLSState::RecievedClientHello => {
                 // We need to evaluate the ClientHello to determine if we want to keep it
                 let hs_message = if let HandshakeMessage::ClientHello(clienthello) = hs_message {
-                    try!(self.negotiate_serverhello(&clienthello))
+                    try!(self.negotiate_serverhello(config, &clienthello))
                 } else {
                     return Err(TLSError::InvalidMessage);
                 };
@@ -1014,6 +1055,9 @@ impl<'a> TLS_session<'a> {
                             return Err(TLSError::InvalidMessage);
                         }
                         self.sent_hello_retry = true;
+
+                        // Reset other connection values
+                        self.reset();
 
                         // Queue the HelloRetryRequest to send back to the client
                         messagequeue.push(hs_message);

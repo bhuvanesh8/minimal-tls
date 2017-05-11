@@ -21,10 +21,56 @@ const aead_chacha20poly1305_bytes: usize = 32;
 const aead_chacha20poly1305_npubbytes: usize = 12;
 const aead_chacha20poly1305_abytes: usize = 16;
 
+pub fn gen_hmac_key() -> Result<Vec<u8>, TLSError> {
+    let mut ret = vec![0; auth_hmacsha256_bytes];
+    unsafe { crypto_auth_hmacsha256_keygen(ret.as_mut_ptr()) };
+    Ok(ret)
+}
+
 pub fn gen_server_random() -> Result<[u8; 32], TLSError> {
     let mut ret = [0; 32];
     unsafe { randombytes_buf(&mut ret as *mut _ as *mut c_void, 32) };
     Ok(ret)
+}
+
+pub fn finalize_hash(th_state : &crypto_hash_sha256_state) -> Result<Vec<u8>, TLSError> {
+    // Copy the hash state struct
+    let mut th_copy = (*th_state).clone();
+    let stateptr = &mut th_copy as *mut crypto_hash_sha256_state;
+
+    // Finalize the hash
+    let mut buffer = vec![0; hash_sha256_bytes];
+    unsafe { crypto_hash_sha256_final(stateptr, buffer.as_mut_ptr()) };
+    Ok(buffer)
+}
+
+pub fn calculate_hmac(data : &[u8], key : &[u8]) -> Result<Vec<u8>, TLSError> {
+    let mut result: Vec<u8> = vec![0; auth_hmacsha256_bytes];
+
+    unsafe {
+        crypto_auth_hmacsha256(result.as_mut_ptr(),
+                               data.as_ptr(),
+                               data.len() as u64,
+                               key.as_ptr())
+    };
+
+    Ok(result)
+}
+
+pub fn verify_cookie(cookie: &Vec<u8>, key : &Vec<u8>) -> Result<Vec<u8>, TLSError> {
+    let mut hmac : Vec<u8> = cookie.clone();
+    let hash_data : Vec<u8> = hmac.drain(0..hash_sha256_bytes).collect();
+
+    if unsafe {
+    crypto_auth_hmacsha256_verify(hmac.as_ptr(),
+        hash_data.as_ptr(),
+        hash_data.len() as u64,
+        key.as_ptr())
+    } != 0 {
+        Err(TLSError::InvalidCookieError)
+    } else {
+        Ok(hash_data)
+    }
 }
 
 // FIXME: Consider using sodium_malloc to allocate buffers for secret data, so they are

@@ -284,6 +284,9 @@ impl TLSToBytes for HandshakeMessage {
             }
             HandshakeMessage::KeyUpdate(ref inner) => {
                 ret.extend(inner.request_update.as_bytes().iter());
+            },
+            HandshakeMessage::MessageHash(ref inner) => {
+                ret.extend(inner.message_hash.iter());
             }
         };
 
