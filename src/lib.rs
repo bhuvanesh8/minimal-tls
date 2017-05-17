@@ -179,7 +179,7 @@ impl<'a> TLS_session<'a> {
         It will handle retrieving a new TLSPlaintext in the case of fragmentation
     */
     fn read(&mut self, dest: &mut [u8]) -> Result<usize, TLSError> {
-        if dest.len() > self.recordcache.len() {
+        while dest.len() > self.recordcache.len() {
             try!(self.fill_recordcache());
         }
 
@@ -206,7 +206,7 @@ impl<'a> TLS_session<'a> {
     }
 
     fn read_encrypted(&mut self, dest: &mut [u8]) -> Result<usize, TLSError> {
-        if dest.len() > self.recordcache.len() {
+        while dest.len() > self.recordcache.len() {
             try!(self.fill_recordcache_encrypted());
         }
 
@@ -219,7 +219,7 @@ impl<'a> TLS_session<'a> {
     }
 
     fn read_u8(&mut self) -> Result<u8, TLSError> {
-        if self.recordcache.len() < 1 {
+        while self.recordcache.len() < 1 {
             // Grab another fragment
             try!(self.fill_recordcache());
         }
@@ -228,7 +228,7 @@ impl<'a> TLS_session<'a> {
     }
 
     fn read_u8_encrypted(&mut self) -> Result<u8, TLSError> {
-        if self.recordcache.len() < 1 {
+        while self.recordcache.len() < 1 {
             // Grab another fragment
             try!(self.fill_recordcache_encrypted());
         }
@@ -237,7 +237,7 @@ impl<'a> TLS_session<'a> {
     }
 
     fn read_u16(&mut self) -> Result<u16, TLSError> {
-        if self.recordcache.len() < 2 {
+        while self.recordcache.len() < 2 {
             // Grab another fragment
             try!(self.fill_recordcache());
         }
@@ -248,7 +248,7 @@ impl<'a> TLS_session<'a> {
     }
 
     fn read_u16_encrypted(&mut self) -> Result<u16, TLSError> {
-        if self.recordcache.len() < 2 {
+        while self.recordcache.len() < 2 {
             // Grab another fragment
             try!(self.fill_recordcache_encrypted());
         }
